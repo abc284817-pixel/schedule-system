@@ -601,6 +601,9 @@ function apiSubmitLeaveRequest(token, payload) {
       sheet.setFrozenRows(1);
     }
     const reqId = "LR_" + Utilities.getUuid().substring(0, 8);
+    // 後端再防一次：沒有自覓代班時，一律不寫入代班人
+    const hasSubstitute = Boolean(payload.has_substitute);
+    const substituteId = hasSubstitute ? String(payload.substitute_id || "") : "";
     sheet.appendRow([
       reqId,
       effectiveEmpId,
@@ -608,8 +611,8 @@ function apiSubmitLeaveRequest(token, payload) {
       String(payload.shift_id),
       String(payload.leave_type || "事假"),
       String(payload.reason_detail || ""),
-      Boolean(payload.has_substitute),
-      String(payload.substitute_id || ""),
+      hasSubstitute,
+      substituteId,
       "Pending",
       new Date()
     ]);

@@ -151,7 +151,8 @@
           leave_type: leaveForm.leave_type,
           reason_detail: leaveForm.reason_detail,
           has_substitute: leaveForm.has_substitute,
-          substitute_id: leaveForm.substitute_id
+          // 選「未找到代班人」時不送出先前選過的代班人，避免資料矛盾
+          substitute_id: leaveForm.has_substitute ? leaveForm.substitute_id : ""
         });
     };
 
