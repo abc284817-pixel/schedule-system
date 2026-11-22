@@ -392,9 +392,13 @@ function apiGetMyShiftsForMonth(token, yearMonth) {
   return { success: true, shifts: shifts, todayStr: todayStr };
 }
 
+/**
+ * 臨時解鎖名冊改存 Script Properties：
+ * CacheService 最長只保留 6 小時且可能提早被清除，無法支撐「開放 24 小時」。
+ * Script Properties 會持續保存，到期與否完全由 expireAt 判斷。
+ */
 function getActiveUnlockRegistry(yearMonth) {
-  const cache = CacheService.getScriptCache();
-  const raw = cache.get("UNLOCK_REG_" + yearMonth);
+  const raw = PropertiesService.getScriptProperties().getProperty("UNLOCK_REG_" + yearMonth);
   if (!raw) return {};
   try {
     const reg = JSON.parse(raw);
@@ -435,21 +439,32 @@ function apiGetBootstrapData(token, yearMonth) {
 function apiSetUnlockFillPermission(token, targetYearMonth, durationHours, targetEmpId) {
   const user = validateToken(token);
   if (!user || user.role !== 'Admin') return { success: false, message: "權限不足：僅店長可執行此操作！" };
-  const cache = CacheService.getScriptCache();
-  const cacheKey = "UNLOCK_REG_" + targetYearMonth;
+  const hours = Number(durationHours);
+  if (!(hours > 0)) return { success: false, message: "解鎖時數無效！" };
+  const propKey = "UNLOCK_REG_" + targetYearMonth;
   const targetVal = targetEmpId ? targetEmpId : "ALL";
-  const seconds = Number(durationHours) * 3600;
-  const expireAtMs = new Date().getTime() + seconds * 1000;
+  const expireAtMs = new Date().getTime() + hours * 3600 * 1000;
   const { staffMap } = getCachedStaffMap();
   const targetName = targetVal === "ALL" ? "全體同仁" : (staffMap[targetVal] ? staffMap[targetVal].name : targetVal);
-  const reg = getActiveUnlockRegistry(targetYearMonth);
-  reg[targetVal] = {
-    target: targetVal,
-    targetName: targetName,
-    expireAt: expireAtMs,
-    yearMonth: targetYearMonth
-  };
-  cache.put(cacheKey, JSON.stringify(reg), 86400);
+
+  // 讀取 → 合併 → 寫回 需加鎖，避免兩位店長同時解鎖時互相覆蓋
+  const lock = LockService.getScriptLock();
+  let reg;
+  try {
+    lock.waitLock(10000);
+    reg = getActiveUnlockRegistry(targetYearMonth); // 只保留未過期項目，順便清掉過期資料
+    reg[targetVal] = {
+      target: targetVal,
+      targetName: targetName,
+      expireAt: expireAtMs,
+      yearMonth: targetYearMonth
+    };
+    PropertiesService.getScriptProperties().setProperty(propKey, JSON.stringify(reg));
+  } catch (e) {
+    return { success: false, message: "解鎖失敗，請重試：" + e.message };
+  } finally {
+    lock.releaseLock();
+  }
   return {
     success: true,
     unlockRegistry: Object.values(reg),
