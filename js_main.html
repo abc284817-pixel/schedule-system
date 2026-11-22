@@ -7,15 +7,21 @@ createApp({
     const core = useCoreModule();
     const avail = useAvailabilityModule(core);
     const roster = useMyRosterModule(core);
-    const leave = useLeaveModule(core, avail);
-    const summary = useManagerSummaryModule(core, avail);
-    const schedAdmin = useScheduleAdminModule(core, avail);
+    const leave = useLeaveModule(core);
+    const summary = useManagerSummaryModule(core);
+    const schedAdmin = useScheduleAdminModule(core);
+    const modules = { core, avail, roster, leave, summary, schedAdmin };
 
+    // 開發防呆：各模組 return 的名稱若重複，後面的會蓋掉前面的（模板會綁錯），在 console 警告
+    (function warnDuplicateExports() {
+      const seen = {};
+      Object.entries(modules).forEach(([mod, obj]) => Object.keys(obj).forEach(k => {
+        if (seen[k]) console.warn(`[架構警告] 匯出名稱重複：${k}（${seen[k]} 與 ${mod}）`);
+        seen[k] = mod;
+      }));
+    })();
 
-    const now = new Date();
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth() + 1;
-    const currentYm = `${currentYear}-${String(currentMonth).padStart(2, '0')}`;
+    const currentYm = CalendarUtils.today().ym;
     const rosterYearMonth = ref(currentYm);
     const isRefreshingRoster = ref(false);
 
@@ -28,34 +34,13 @@ createApp({
     });
 
 
+    // 月份選單：系統起始月 ~ 本月 + 3 個月（新到舊）
     const fullHistoricalMonths = computed(() => {
       const list = [];
-      let y = 2024, m = 2;
-      const maxDate = new Date(currentYear, currentMonth + 2, 1);
-
-
-      while (
-        y < maxDate.getFullYear() ||
-        (y === maxDate.getFullYear() && m <= (maxDate.getMonth() + 1))
-      ) {
-        const mStr = String(m).padStart(2, '0');
-        const ymVal = `${y}-${mStr}`;
-
-
-        list.push({
-          value: ymVal,
-          label: `${y} 年 ${mStr} 月`
-        });
-
-
-        m++;
-        if (m > 12) {
-          m = 1;
-          y++;
-        }
+      const endYm = CalendarUtils.addMonths(currentYm, 3);
+      for (let ym = APP_CONFIG.RULES.HISTORY_START_YM; ym <= endYm; ym = CalendarUtils.addMonths(ym, 1)) {
+        list.push(CalendarUtils.monthOption(ym));
       }
-
-
       return list.reverse();
     });
 
@@ -140,43 +125,6 @@ const dynamicHolidays = ref({});
       return dynamicHolidays.value[d] || null;
     };
 
-// ==========================================
-    // 👇 請在這裡新增：工時結算狀態鎖與觸發函數 👇
-    // ==========================================
-    const isRecalculating = ref(false);
-
-    const handleRecalculateStats = () => {
-      if (isRecalculating.value) return; 
-      isRecalculating.value = true;
-      
-      google.script.run
-        .withSuccessHandler(res => {
-          isRecalculating.value = false;
-          if (!res || !res.success) {
-            const msg = "❌ 結算失敗：" + ((res && res.message) ? res.message : "未知錯誤");
-            if (core.triggerStickyAlert) core.triggerStickyAlert(msg, "error");
-            else alert(msg);
-            return;
-          }
-          // 呼叫你的排班重載函數，讓畫面上的數字自動刷新
-          schedAdmin.fetchScheduleData(schedAdmin.scheduleTargetYearMonth.value, true);
-          if (core.triggerStickyAlert) {
-            core.triggerStickyAlert(`✅ 結算完成！已重新校正 ${res.count} 筆雙薪與工時紀錄。`, "success");
-          } else {
-            alert(`✅ 結算完成！共校正 ${res.count} 筆資料。`);
-          }
-        })
-        .withFailureHandler(err => {
-          isRecalculating.value = false;
-          if (core.triggerStickyAlert) {
-            core.triggerStickyAlert("❌ 結算失敗：" + err.message, "error");
-          } else {
-            alert("❌ 結算失敗：" + err.message);
-          }
-        })
-        .apiRecalculateMonthlyStats(core.token.value);
-    };
-
     const handleLogin = () => {
       core.loginError.value = "";
 
@@ -251,7 +199,7 @@ const dynamicHolidays = ref({});
       google.script.run
         .withSuccessHandler((res) => {
           if (res && res.success) {
-            avail.colleagueList.value = res.colleagues || [];
+            core.colleagueList.value = res.colleagues || [];
 
 
             if (res.allStaffList) {
@@ -482,8 +430,6 @@ const dynamicHolidays = ref({});
       handleApproveLeave: schedAdmin.approveLeave,
       handleRejectLeave: schedAdmin.rejectLeave,
       handleRunArchive: schedAdmin.executeArchiveFromSchedule,
-      isRecalculating,
-      handleRecalculateStats,
     };
   }
 }).mount('#app');

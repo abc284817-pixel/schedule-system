@@ -152,11 +152,7 @@ function runSimulateHistory_202402_202609() {
     Logger.log(`✅ 活躍班表寫入完成：共 ${schedRows.length - 1} 筆排班記錄！`);
   }
 
-  const statsSheet = ss.getSheetByName("Staff_Monthly_Stats");
-  if (statsSheet) {
-    inPlaceReplaceSheetData(statsSheet, statsRows, 8);
-    Logger.log(`✅ 月工時統計更新完成：共 ${statsRows.length - 1} 筆！`);
-  }
+  // 月工時統計改由正式引擎重算（9 欄：含雙薪 / 備援），避免模擬器自行寫入舊 8 欄格式
 
   // 7. 將冷儲存區重設為乾淨狀態 (僅保留表頭，供你手動執行封存測試)
   const availArcSheet = ss.getSheetByName("Availability_Archive");
@@ -182,4 +178,6 @@ function runSimulateHistory_202402_202609() {
   refreshAllViewers("2026-09");
 
   Logger.log("🎉 歷史活躍數據模擬完成！現在你可以登入系統後台，測試執行「歷史資料封存」，檢驗資料搬移至冷儲存區與幽靈列裁切的功能！");
+  recalculateAllMonthlyStats_();
+  Logger.log("✅ 月工時統計已由 recalculateAllMonthlyStats_ 重算完成");
 }

@@ -1,0 +1,239 @@
+  <!-- 視角切換器 -->
+  <div class="flex justify-between items-center bg-white p-3 rounded-2xl shadow-sm border border-slate-200">
+    <div class="flex space-x-2">
+      <button
+        @click="scheduleViewMode = 'calendar'"
+        :class="scheduleViewMode === 'calendar' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600'"
+        class="px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer"
+      >
+        📅 排班總覽
+      </button>
+      <button
+        @click="scheduleViewMode = 'table'"
+        :class="scheduleViewMode === 'table' ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600'"
+        class="px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer"
+      >
+        📋 清單調度明細
+      </button>
+    </div>
+    <span class="text-xs text-slate-400">當前視角：{{ scheduleViewMode === 'calendar' ? '排班總覽' : '清單調度明細' }}</span>
+  </div>
+    
+  <!-- 6. 視角 1：排班總覽矩陣 -->
+  <div v-if="scheduleViewMode === 'calendar'" class="bg-white p-4 sm:p-5 rounded-2xl shadow-sm border border-slate-200">
+    <!-- A. 電腦端 7 欄月曆 (>= 768px 顯示) -->
+    <div class="hidden md:block">
+      <div class="grid grid-cols-7 gap-2 mb-2 text-center text-xs font-bold text-slate-500">
+        <div class="py-1 text-rose-500">週日</div>
+        <div class="py-1">週一</div>
+        <div class="py-1">週二</div>
+        <div class="py-1">週三</div>
+        <div class="py-1">週四</div>
+        <div class="py-1">週五</div>
+        <div class="py-1 text-indigo-500">週六</div>
+      </div>
+      <div class="grid grid-cols-7 gap-2">
+        <div v-for="blank in scheduleBlankDays" :key="'sched-b-' + blank" class="min-h-[295px] bg-slate-50/40 rounded-xl border border-dashed border-slate-200"></div>
+        <div
+          v-for="item in scheduleMonthCalendar"
+          :key="'sched-' + item.dateStr"
+          class="min-h-[295px] p-2 rounded-xl border border-slate-200 bg-white flex flex-col justify-start"
+        >
+          <div class="h-6 text-xs font-bold text-slate-700 mb-1 border-b border-slate-100 pb-1 flex justify-between items-center shrink-0">
+            <div class="flex items-baseline space-x-1">
+              <span class="[font-feature-settings:'tnum']">{{ item.dayNumber }}日</span>
+              <span
+                v-if="getHolidayInfo(item.dateStr)"
+                :class="getHolidayInfo(item.dateStr).isDoublePay ? 'text-rose-600 font-bold bg-rose-50 px-1 rounded border border-rose-200' : 'text-indigo-600 font-medium'"
+                class="text-[10px]"
+              >
+                {{ getHolidayInfo(item.dateStr).name }}
+              </span>
+            </div>
+            <span class="text-[10px] text-slate-400">({{ item.weekday }})</span>
+          </div>
+          <div class="flex flex-col justify-start space-y-2.5 py-0.5 w-full">
+            <!-- 午班 -->
+            <div
+              :class="isShiftDeficit(item.dateStr, 'SHIFT_LUNCH') ? 'bg-rose-50/80 border-rose-200' : 'bg-blue-50/70 border-blue-100'"
+              class="min-h-[120px] p-2 rounded-lg border flex flex-col justify-start transition-colors"
+            >
+              <div class="h-5 flex items-center justify-between w-full leading-none pb-1.5 border-b border-black/5 shrink-0">
+                <span
+                  :class="isShiftDeficit(item.dateStr, 'SHIFT_LUNCH') ? 'text-rose-600 font-extrabold' : 'text-blue-800 font-bold'"
+                  class="text-[11px] tracking-tight"
+                >
+                  午班
+                </span>
+                <span
+                  :class="isShiftDeficit(item.dateStr, 'SHIFT_LUNCH') ? 'bg-rose-600 text-white shadow-2xs' : 'bg-blue-100/90 text-blue-700'"
+                  class="shrink-0 text-[9px] px-1.5 py-0.5 rounded-full font-bold [font-feature-settings:'tnum']"
+                >
+                  {{ getScheduleForDateAndShift(item.dateStr, 'SHIFT_LUNCH').length }}人
+                </span>
+              </div>
+              <div class="grid grid-cols-2 gap-1.5 mt-1.5 w-full">
+                <div
+                  v-for="s in getScheduleForDateAndShift(item.dateStr, 'SHIFT_LUNCH')"
+                  :key="s.schedule_id"
+                  :class="(s.dispatch_type === 'Standby' || s.dispatch_type === '備援') ? 'bg-amber-100/90 text-amber-950 border-amber-300' : 'bg-white text-slate-800 border-slate-200'"
+class="text-[10px] px-1 py-0.5 min-h-[22px] rounded border shadow-2xs font-medium flex items-center justify-between overflow-hidden"
+                >
+                  <span class="truncate leading-tight">{{ s.employee_name }}</span>
+<span v-if="s.is_core_at_work || isStaffCore(s.employee_id)" class="text-amber-500 font-bold ml-0.5 shrink-0" title="核心同仁">*</span>
+                </div>
+                <div v-if="getScheduleForDateAndShift(item.dateStr, 'SHIFT_LUNCH').length === 0" class="col-span-2 text-center text-[10px] text-rose-400 font-bold py-4">
+                  (無出勤名單)
+                </div>
+              </div>
+            </div>
+
+            <!-- 晚班 -->
+            <div
+              :class="isShiftDeficit(item.dateStr, 'SHIFT_DINNER') ? 'bg-rose-50/80 border-rose-200' : 'bg-emerald-50/70 border-emerald-100'"
+              class="min-h-[120px] p-2 rounded-lg border flex flex-col justify-start transition-colors"
+            >
+              <div class="h-5 flex items-center justify-between w-full leading-none pb-1.5 border-b border-black/5 shrink-0">
+                <span
+                  :class="isShiftDeficit(item.dateStr, 'SHIFT_DINNER') ? 'text-rose-600 font-extrabold' : 'text-emerald-800 font-bold'"
+                  class="text-[11px] tracking-tight"
+                >
+                  晚班
+                </span>
+                <span
+                  :class="isShiftDeficit(item.dateStr, 'SHIFT_DINNER') ? 'bg-rose-600 text-white shadow-2xs' : 'bg-emerald-100/90 text-emerald-700'"
+                  class="shrink-0 text-[9px] px-1.5 py-0.5 rounded-full font-bold [font-feature-settings:'tnum']"
+                >
+                  {{ getScheduleForDateAndShift(item.dateStr, 'SHIFT_DINNER').length }}人
+                </span>
+              </div>
+              <div class="grid grid-cols-2 gap-1.5 mt-1.5 w-full">
+                <div
+                  v-for="s in getScheduleForDateAndShift(item.dateStr, 'SHIFT_DINNER')"
+                  :key="s.schedule_id"
+                  :class="(s.dispatch_type === 'Standby' || s.dispatch_type === '備援') ? 'bg-amber-100/90 text-amber-950 border-amber-300' : 'bg-white text-slate-800 border-slate-200'"
+class="text-[10px] px-1 py-0.5 min-h-[22px] rounded border shadow-2xs font-medium flex items-center justify-between overflow-hidden"
+                >
+                  <span class="truncate leading-tight">{{ s.employee_name }}</span>
+<span v-if="s.is_core_at_work || isStaffCore(s.employee_id)" class="text-amber-500 font-bold ml-0.5 shrink-0" title="核心同仁">*</span>
+                </div>
+                <div v-if="getScheduleForDateAndShift(item.dateStr, 'SHIFT_DINNER').length === 0" class="col-span-2 text-center text-[10px] text-rose-400 font-bold py-4">
+                  (無出勤名單)
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- B. 手機端專用：縱向寬敞卡片流 -->
+    <div class="block md:hidden space-y-3">
+      <div
+        v-for="item in scheduleMonthCalendar"
+        :key="'sched-m-' + item.dateStr"
+        class="bg-white p-3 rounded-2xl border border-slate-200 shadow-2xs space-y-2.5"
+        :class="{'bg-rose-50/20 border-rose-200': item.weekday === '日' || item.weekday === '六'}"
+      >
+        <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+          <div class="flex items-center space-x-2.5">
+            <div
+              class="w-10 h-10 rounded-xl flex flex-col items-center justify-center font-bold border shrink-0"
+              :class="item.weekday === '日' ? 'bg-rose-50 border-rose-200 text-rose-600' : (item.weekday === '六' ? 'bg-indigo-50 border-indigo-200 text-indigo-600' : 'bg-slate-50 border-slate-200 text-slate-800')"
+            >
+              <span class="text-base font-extrabold leading-none [font-feature-settings:'tnum']">{{ item.dayNumber }}</span>
+              <span class="text-[10px] leading-none mt-0.5">週{{ item.weekday }}</span>
+            </div>
+            <div>
+              <span class="text-xs font-bold text-slate-800 font-mono">{{ item.dateStr }}</span>
+              <div v-if="getHolidayInfo(item.dateStr)">
+                <span
+                  :class="getHolidayInfo(item.dateStr).isDoublePay ? 'text-rose-600 font-bold bg-rose-50 px-1 py-0.2 rounded border border-rose-200' : 'text-indigo-700 font-semibold bg-indigo-50 px-1 py-0.2 rounded'"
+                  class="text-[10px]"
+                >
+                  {{ getHolidayInfo(item.dateStr).name }}
+                </span>
+              </div>
+            </div>
+          </div>
+          <div class="flex flex-col items-end gap-1 text-[11px] [font-feature-settings:'tnum']">
+            <div class="flex items-center space-x-1 font-semibold text-blue-900 bg-blue-50/80 px-2 py-0.5 rounded-md border border-blue-100">
+              <span class="font-bold text-blue-700">午</span>
+              <span>{{ getScheduleForDateAndShift(item.dateStr, 'SHIFT_LUNCH').length }} 人出勤</span>
+            </div>
+            <div class="flex items-center space-x-1 font-semibold text-emerald-900 bg-emerald-50/80 px-2 py-0.5 rounded-md border border-emerald-100">
+              <span class="font-bold text-emerald-700">晚</span>
+              <span>{{ getScheduleForDateAndShift(item.dateStr, 'SHIFT_DINNER').length }} 人出勤</span>
+            </div>
+          </div>
+        </div>
+    
+        <div class="space-y-2">
+          <!-- 午班名單 -->
+          <div
+            class="p-2.5 rounded-xl border text-xs"
+            :class="isShiftDeficit(item.dateStr, 'SHIFT_LUNCH') ? 'bg-rose-50/70 border-rose-200' : 'bg-blue-50/50 border-blue-100'"
+          >
+            <div class="flex items-center justify-between mb-1.5 pb-1 border-b border-black/5">
+              <span class="font-extrabold" :class="isShiftDeficit(item.dateStr, 'SHIFT_LUNCH') ? 'text-rose-700' : 'text-blue-800'">
+                午班 (10:30-14:30)
+              </span>
+              <span
+                class="px-2 py-0.5 rounded-full text-[10px] font-extrabold"
+                :class="isShiftDeficit(item.dateStr, 'SHIFT_LUNCH') ? 'bg-rose-600 text-white' : 'bg-blue-100 text-blue-700'"
+              >
+                {{ getScheduleForDateAndShift(item.dateStr, 'SHIFT_LUNCH').length }} 人
+              </span>
+            </div>
+            <div class="flex flex-wrap gap-1.5">
+              <span
+                v-for="s in getScheduleForDateAndShift(item.dateStr, 'SHIFT_LUNCH')"
+                :key="'m-s-l-' + s.schedule_id"
+                class="px-2 py-1 rounded-lg text-xs border font-medium flex items-center space-x-1 shadow-2xs"
+:class="(s.dispatch_type === 'Standby' || s.dispatch_type === '備援') ? 'bg-amber-100 text-amber-950 border-amber-300' : 'bg-white text-slate-800 border-slate-200'"
+              >
+                <span>{{ s.employee_name }}</span>
+<span v-if="s.is_core_at_work || isStaffCore(s.employee_id)" class="text-amber-600 font-bold ml-0.5" title="核心幹部">*</span>
+              </span>
+              <span v-if="getScheduleForDateAndShift(item.dateStr, 'SHIFT_LUNCH').length === 0" class="text-xs text-rose-500 font-bold py-1">
+                ⚠️ 本班次尚未排定人員出勤
+              </span>
+            </div>
+          </div>
+    
+          <!-- 晚班名單 -->
+          <div
+            class="p-2.5 rounded-xl border text-xs"
+            :class="isShiftDeficit(item.dateStr, 'SHIFT_DINNER') ? 'bg-rose-50/70 border-rose-200' : 'bg-emerald-50/50 border-emerald-100'"
+          >
+            <div class="flex items-center justify-between mb-1.5 pb-1 border-b border-black/5">
+              <span class="font-extrabold" :class="isShiftDeficit(item.dateStr, 'SHIFT_DINNER') ? 'text-rose-700' : 'text-emerald-800'">
+                晚班 (17:30-21:30)
+              </span>
+              <span
+                class="px-2 py-0.5 rounded-full text-[10px] font-extrabold"
+                :class="isShiftDeficit(item.dateStr, 'SHIFT_DINNER') ? 'bg-rose-600 text-white' : 'bg-emerald-100 text-emerald-700'"
+              >
+                {{ getScheduleForDateAndShift(item.dateStr, 'SHIFT_DINNER').length }} 人
+              </span>
+            </div>
+            <div class="flex flex-wrap gap-1.5">
+              <span
+                v-for="s in getScheduleForDateAndShift(item.dateStr, 'SHIFT_DINNER')"
+                :key="'m-s-d-' + s.schedule_id"
+                class="px-2 py-1 rounded-lg text-xs border font-medium flex items-center space-x-1 shadow-2xs"
+:class="(s.dispatch_type === 'Standby' || s.dispatch_type === '備援') ? 'bg-amber-100 text-amber-950 border-amber-300' : 'bg-white text-slate-800 border-slate-200'"
+              >
+                <span>{{ s.employee_name }}</span>
+<span v-if="s.is_core_at_work || isStaffCore(s.employee_id)" class="text-amber-600 font-bold ml-0.5" title="核心幹部">*</span>
+              </span>
+              <span v-if="getScheduleForDateAndShift(item.dateStr, 'SHIFT_DINNER').length === 0" class="text-xs text-rose-500 font-bold py-1">
+                ⚠️ 本班次尚未排定人員出勤
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+    

@@ -1,4 +1,19 @@
 <script>
-  // 台灣法定國定假日與門市營業重要節慶 (2024 ~ 2027)
-  const BUILTIN_HOLIDAYS = { };
+  // 由後端 00_Config.js 的 getClientConfig() 注入：班別、法規數值前後端共用同一份，前端禁止另寫數字。
+  const APP_CONFIG = Object.freeze(<?!= JSON.stringify(getClientConfig()) ?>);
+
+  const ShiftUtils = Object.freeze({
+    ids: APP_CONFIG.SHIFTS.map(s => s.id),
+    /** 班別排序權重（午班 0、晚班 1、未知 99） */
+    order(id) {
+      const i = this.ids.indexOf(id);
+      return i < 0 ? 99 : i;
+    },
+    /** { SHIFT_LUNCH:false, SHIFT_DINNER:false } */
+    emptyFlags() {
+      const o = {};
+      this.ids.forEach(id => { o[id] = false; });
+      return o;
+    }
+  });
 </script>

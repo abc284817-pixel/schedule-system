@@ -14,6 +14,14 @@
    const currentTimestamp = ref(new Date());
    let clockTimer = null;
 
+   // 共用參考資料：同事清單（登入後由 js_main 的 loadBootstrapData 寫入），各模組只從 core 讀
+   const colleagueList = ref([]);
+   // 代理帳號轉換後的本人代號（MGR001 → EMP001），由後端登入回傳
+   const myEmployeeId = computed(() => {
+     const u = currentUser.value;
+     return u ? (u.effective_employee_id || u.employee_id || "") : "";
+   });
+
    const stickyAlert = reactive({
      visible: false,
      message: "",
@@ -74,7 +82,9 @@ const triggerStickyAlert = (msg, type = "success") => {
      systemRealYearMonthText,
      isMobileDrawerOpen,
      scrollToTop,
-     scrollToBottom
+     scrollToBottom,
+     colleagueList,
+     myEmployeeId
    };
  }
 </script>

@@ -20,31 +20,34 @@
 
 ## 檔案結構
 
+架構、檔案職責、API 對照與修改規範請見 **[AGENTS.md](AGENTS.md)**。
+
 | 類型 | 檔案 |
 |---|---|
-| 後端主程式 | `Api.js`（API、排班演算法、稽核、封存） |
-| 計薪 | `Service_Payroll.js` |
-| 資料庫建置 / 工具 | `Schema.js`、`SeedData.js`、`RepairScheduleFinalData.js` |
-| 測試 / 模擬 | `Simulate_*.js`、`Test_Schedule_Engine.js` |
+| 設定 / 工具 | `00_Config.js`（唯一設定來源）、`01_Util.js` |
+| 後端領域 | `10_Auth` `20_Availability` `30_Scheduler` `31_ScheduleAdmin` `32_Audit` `40_Leave` `50_Payroll` `60_Archive` `70_Viewers`（`.js`） |
+| 一次性腳本 | `tools/`（建表、種子資料、模擬、稽核測試；只在 Apps Script 編輯器手動執行） |
 | 前端頁面 | `index.html`、`view_*.html`、`css.html` |
 | 前端邏輯 | `js_*.html`（Vue 模組） |
+| 本機回歸測試 | `dev/`（Node，不會推上 Apps Script） |
 
 > Apps Script 裡的 `.gs` 檔在這裡存成 `.js`，這是 `clasp` 的慣例，推回 Apps Script 時會自動轉回 `.gs`。
 
 ## 與 Apps Script 同步（clasp）
 
-本 repo 已附 `.clasp.json`（指向原專案的 scriptId）。目前**尚未包含 `appsscript.json`**（專案設定檔），第一次同步前請先拉下來：
+本 repo 已附 `.clasp.json`（指向原專案的 scriptId）與 `.claspignore`。目前**尚未包含 `appsscript.json`**：請到 Apps Script 編輯器「專案設定 → 在編輯器中顯示 appsscript.json」，把內容存成根目錄的 `appsscript.json`。
+
+> ⚠️ 不要在 repo 內直接 `clasp pull`：會把遠端已移除的舊檔（例如 `Api.js`）拉回來，造成函式重複定義。
 
 ```bash
 npm install -g @google/clasp
 clasp login
-clasp pull        # 取得 appsscript.json 與最新程式碼
-clasp push        # 把本機修改推回 Apps Script
+clasp push        # 以本機檔案完整取代遠端專案
 ```
 
 需要先在 https://script.google.com/home/usersettings 開啟「Google Apps Script API」。
 
 ## 注意
 
-- `SeedData.js` 內的員工資料與預設密碼為模擬資料。
-- `Schema.js` 的 `setupEntireDatabaseSystem()` 會**清空所有工作表**，正式環境請勿執行。
+- `tools/Setup_Database.js` 內的員工資料與預設密碼為模擬資料。
+- `tools/Setup_Database.js` 的 `setupEntireDatabaseSystem()` 會**清空所有工作表**，正式環境請勿執行。

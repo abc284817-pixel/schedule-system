@@ -1,22 +1,10 @@
 <script>
-  function useLeaveModule(core, avail) {
-    const now = new Date();
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth() + 1;
+  function useLeaveModule(core) {
+    const currentYm = CalendarUtils.today().ym;
 
     // 需求 3：選項文字內部補齊固定兩位數字，保證選單浮層中等寬切齊
     const leaveSelectableMonths = computed(() => {
-      const list = [];
-      for (let i = 0; i < 4; i++) {
-        const d = new Date(currentYear, currentMonth - 1 + i, 1);
-        const y = d.getFullYear();
-        const m = String(d.getMonth() + 1).padStart(2, '0');
-        list.push({
-          value: `${y}-${m}`,
-          label: `${y} 年 ${m} 月`
-        });
-      }
-      return list;
+      return [0, 1, 2, 3].map(i => CalendarUtils.monthOption(CalendarUtils.addMonths(currentYm, i)));
     });
 
     const leaveFilterMonth = ref("");
@@ -49,12 +37,12 @@
 
     const eligibleSubstitutes = computed(() => {
       if (selectedAssignedShiftIndex.value === -1 || !myAssignedShifts.value[selectedAssignedShiftIndex.value]) {
-        return avail.colleagueList.value;
+        return core.colleagueList.value;
       }
       const targetShift = myAssignedShifts.value[selectedAssignedShiftIndex.value];
       const assignedInShiftSet = new Set(targetShift.assigned_staff_in_shift || []);
 
-      return avail.colleagueList.value.filter(colleague => {
+      return core.colleagueList.value.filter(colleague => {
         if (assignedInShiftSet.has(colleague.employee_id)) return false;
 
         if (targetShift.is_sole_core) {

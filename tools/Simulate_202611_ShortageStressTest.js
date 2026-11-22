@@ -268,19 +268,4 @@ function clearMonthRecords(sheetName, colIndex, yearMonth, tz) {
     sheet.getRange(1, 1, keepRows.length, keepRows[0].length).setValues(keepRows);
   }
 }
-
-/**
- * 輔助函式：月份字串正規化
- */
-function normalizeYearMonth(val, tz) {
-  if (!val) return "";
-  if (val instanceof Date) {
-    return Utilities.formatDate(val, tz, "yyyy-MM");
-  }
-  const s = String(val).trim();
-  const m = s.match(/^(\d{4})[\/-](\d{1,2})/);
-  if (m) {
-    return `${m[1]}-${m[2].padStart(2, '0')}`;
-  }
-  return s.substring(0, 7);
-}
+// normalizeYearMonth 改用 01_Util.js 的共用版本（避免全域同名覆蓋）

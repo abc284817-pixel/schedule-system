@@ -1,10 +1,10 @@
 <script>
-function useManagerSummaryModule(core, avail) {
-  const now = new Date();
-  const currentYear = now.getFullYear();
-  const currentMonth = now.getMonth() + 1;
+function useManagerSummaryModule(core) {
+  const T = CalendarUtils.today();
+  const currentYear = T.y;
+  const currentMonth = T.m;
 
-  const managerYearMonth = ref(avail.defaultNextMonth.value);
+  const managerYearMonth = ref(CalendarUtils.addMonths(T.ym, 1));
   const managerSummaryList = ref([]);
   const isAutoScheduling = ref(false);
   const showScheduleTooltip = ref(false);

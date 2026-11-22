@@ -1,5 +1,5 @@
 <script>
-function useScheduleAdminModule(core, avail) {
+function useScheduleAdminModule(core) {
   const scheduleViewMode = ref("calendar"); // 'calendar' | 'table'
   const scheduleList = ref([]);
   const scheduleConflicts = ref([]);
@@ -15,26 +15,24 @@ function useScheduleAdminModule(core, avail) {
   const isRefreshingSchedule = ref(false);
   const isArchiving = ref(false);
   const showArchiveTooltip = ref(false);
+  const isRecalculating = ref(false);
 
-  const now = new Date();
-  const currentYear = now.getFullYear();
-  const currentMonth = now.getMonth() + 1;
-  const currentYm = `${currentYear}-${String(currentMonth).padStart(2, '0')}`;
+  // 班表月曆（本模組自有，不可借用意願填報模組的月曆）
+  const scheduleMonthCalendar = ref([]);
+  const scheduleBlankDays = ref(0);
+
+  const T = CalendarUtils.today();
+  const currentYear = T.y;
+  const currentMonth = T.m;
+  const currentYm = T.ym;
 
   // 預設選取下個月
-  const scheduleTargetYearMonth = ref(avail && avail.defaultNextMonth ? avail.defaultNextMonth.value : "2026-11");
+  const scheduleTargetYearMonth = ref(CalendarUtils.addMonths(currentYm, 1));
 
   // 歷史封存候選清單（過去 2 ~ 12 個月）
   const archiveCandidateMonths = computed(() => {
     const list = [];
-    for (let i = 2; i <= 12; i++) {
-      const d = new Date(currentYear, currentMonth - 1 - i, 1);
-      const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      list.push({
-        value: ym,
-        label: `${d.getFullYear()} 年 ${String(d.getMonth() + 1).padStart(2, '0')} 月`
-      });
-    }
+    for (let i = 2; i <= 12; i++) list.push(CalendarUtils.monthOption(CalendarUtils.addMonths(currentYm, -i)));
     return list;
   });
 
@@ -51,7 +49,7 @@ function useScheduleAdminModule(core, avail) {
   // 批次新增人手暫存配置
   const newShiftBatchConfig = reactive({
     date: "",
-    shift_id: "SHIFT_LUNCH",
+    shift_id: ShiftUtils.ids[0],
     count: 1
   });
 
@@ -123,15 +121,7 @@ function useScheduleAdminModule(core, avail) {
     return s ? Boolean(s.is_core) : false;
   };
 
-  const normalizeDate = (dStr) => {
-    if (!dStr) return "";
-    const s = String(dStr).trim();
-    const m = s.match(/^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})/);
-    if (m) {
-      return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
-    }
-    return s.substring(0, 10);
-  };
+  const normalizeDate = CalendarUtils.normalizeDateStr;
 
   // 待存調度追蹤 (Diff 機制)
   const draftUpdates = reactive({});
@@ -191,24 +181,17 @@ function useScheduleAdminModule(core, avail) {
 
   const isShiftDeficit = (dateStr, shiftId) => {
     const assigned = getScheduleForDateAndShift(dateStr, shiftId).filter(s => s.dispatch_type === 'Assigned');
-    return assigned.length < 5;
+    return assigned.length < APP_CONFIG.RULES.STAFF_PER_SHIFT;
   };
 
-  // ⚡ 衝突通報排序權重：
-  // Level 1: 160 小時工時超標 (絕對置頂)
-  // Level 2: 四週例休不足違規 (未滿 8 天 / 出勤 > 20 天)
-  // 同級時：單純依員工代碼 (EMPxxx) 升冪排序
-  // Level 3: 一般門市營運缺工與排班衝突 (依日期與班別排)
-// 衝突通報：由左至右、法規強制置頂、日期排序、先午班再晚班
+  // 衝突通報排序：法規違規（後端 is_legal）置頂 → 日期 → 班別 → 代碼
  const displayConflictsList = computed(() => {
-   const shiftPriority = { 'SHIFT_LUNCH': 1, 'SHIFT_DINNER': 2 };
    return scheduleConflicts.value
      .filter(c => !hiddenConflictIds.has(c.conflict_id))
      .slice()
      .sort((a, b) => {
-       // 🚨 真正的架構級置頂：只要是法規違規，權重為 0 (最頂)，一般缺工為 1
-       const isLegalA = (a.reason.includes('七休一') || a.reason.includes('160') || a.reason.includes('工時') || a.reason.includes('例休')) ? 0 : 1;
-       const isLegalB = (b.reason.includes('七休一') || b.reason.includes('160') || b.reason.includes('工時') || b.reason.includes('例休')) ? 0 : 1;
+       const isLegalA = a.is_legal ? 0 : 1;
+       const isLegalB = b.is_legal ? 0 : 1;
        if (isLegalA !== isLegalB) return isLegalA - isLegalB;
 
        // 同權重下，再依日期排序
@@ -217,8 +200,8 @@ function useScheduleAdminModule(core, avail) {
        const dComp = dateA.localeCompare(dateB);
        if (dComp !== 0) return dComp;
   
-       const prioA = shiftPriority[a.shift_id] || 99;
-       const prioB = shiftPriority[b.shift_id] || 99;
+       const prioA = ShiftUtils.order(a.shift_id);
+       const prioB = ShiftUtils.order(b.shift_id);
        if (prioA !== prioB) return prioA - prioB;
   
        return String(a.conflict_id).localeCompare(String(b.conflict_id));
@@ -272,11 +255,10 @@ function useScheduleAdminModule(core, avail) {
       list = list.filter(s => normalizeDate(s.date) === filterScheduleDate.value);
     }
 
-    const shiftPriority = { 'SHIFT_LUNCH': 1, 'SHIFT_DINNER': 2 };
     return list.sort((a, b) => {
       const dComp = normalizeDate(a.date).localeCompare(normalizeDate(b.date));
       if (dComp !== 0) return dComp;
-      return (shiftPriority[a.shift_id] || 99) - (shiftPriority[b.shift_id] || 99);
+      return ShiftUtils.order(a.shift_id) - ShiftUtils.order(b.shift_id);
     });
   });
 
@@ -394,9 +376,9 @@ function useScheduleAdminModule(core, avail) {
 
     discardAllChanges();
     filterScheduleDate.value = "";
-    if (avail && typeof avail.generateCalendar === 'function') {
-      avail.generateCalendar(targetYm);
-    }
+    const grid = CalendarUtils.buildMonthCalendarGrid(targetYm);
+    scheduleMonthCalendar.value = grid.days;
+    scheduleBlankDays.value = grid.blankDays;
 
     isRefreshingSchedule.value = true;
     google.script.run
@@ -491,7 +473,29 @@ function useScheduleAdminModule(core, avail) {
       .apiRejectLeaveRequest(core.token.value, leaveReq.request_id);
   };
 
+  // 全量工時結算（含封存區）
+  const handleRecalculateStats = () => {
+    if (isRecalculating.value) return;
+    isRecalculating.value = true;
+    google.script.run
+      .withSuccessHandler(res => {
+        isRecalculating.value = false;
+        if (!res || !res.success) {
+          core.triggerStickyAlert("❌ 結算失敗：" + ((res && res.message) ? res.message : "未知錯誤"), "error");
+          return;
+        }
+        fetchScheduleData(scheduleTargetYearMonth.value, true);
+        core.triggerStickyAlert(`✅ 結算完成！已重新校正 ${res.count} 筆雙薪與工時紀錄。`, "success");
+      })
+      .withFailureHandler(err => {
+        isRecalculating.value = false;
+        core.triggerStickyAlert("❌ 結算失敗：" + err.message, "error");
+      })
+      .apiRecalculateMonthlyStats(core.token.value);
+  };
+
   return {
+    scheduleMonthCalendar, scheduleBlankDays, isRecalculating, handleRecalculateStats,
     scheduleViewMode, scheduleList, scheduleConflicts, allStaffList, pendingLeaves,
     leaveAuditHistory, monthlyStatsList, rawUnlockRegistry, hiddenConflictIds,
     showConflictBanner, showAddStaffModal, filterScheduleDate, scheduleTargetYearMonth,

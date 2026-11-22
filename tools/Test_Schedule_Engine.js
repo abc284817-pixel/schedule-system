@@ -37,8 +37,8 @@ function auditRealDatabaseSchedule() {
       const empId = String(aData[i][2]).trim();
       if (ym === targetYearMonth && !staffPrefs[empId]) {
         staffPrefs[empId] = {
-          partner: String(aData[i][8] || "").trim(),
-          dislike: String(aData[i][9] || "").trim()
+          partner: String(aData[i][COL.AVAIL.pref_partner_id] || "").trim(),
+          dislike: String(aData[i][COL.AVAIL.dislike_partner_id] || "").trim()
         };
       }
     }

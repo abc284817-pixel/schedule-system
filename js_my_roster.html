@@ -9,7 +9,7 @@ function useMyRosterModule(core) {
   });
 
   const myMonthlyTotalHours = computed(() => {
-    return (myRosterSchedule.value.length * 4.0).toFixed(1);
+    return (myRosterSchedule.value.length * APP_CONFIG.RULES.SHIFT_HOURS).toFixed(1);
   });
 
   const myRosterBlankDays = ref(0);
@@ -24,8 +24,7 @@ function useMyRosterModule(core) {
     myRosterBlankDays.value = grid.blankDays;
 
     const shiftMapByDate = {};
-    const shiftPriority = { 'SHIFT_LUNCH': 1, 'SHIFT_DINNER': 2 };
-    const myEmpId = (core.currentUser.value && core.currentUser.value.employee_id === 'MGR001') ? 'EMP001' : (core.currentUser.value?.employee_id || '');
+    const myEmpId = core.myEmployeeId.value;
 
     myRosterSchedule.value.forEach(shift => {
       const cleanDate = CalendarUtils.normalizeDateStr(shift.date);

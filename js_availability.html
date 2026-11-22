@@ -1,21 +1,18 @@
 <script>
 function useAvailabilityModule(core) {
-  const now = new Date();
-  const currentYear = now.getFullYear();
-  const currentMonth = now.getMonth() + 1;
-  const currentDay = now.getDate();
-  const currentYm = `${currentYear}-${String(currentMonth).padStart(2, '0')}`;
+  const T = CalendarUtils.today();
+  const currentYear = T.y;
+  const currentMonth = T.m;
+  const currentDay = T.d;
+  const currentYm = T.ym;
   const unlockedMonthsSet = reactive(new Set());
   const isTempUnlockedForMe = ref(false);
   const unlockExpireAt = ref(0);
 
-  const defaultNextMonth = computed(() => {
-    const d = new Date(currentYear, currentMonth, 1);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-  });
+  const defaultNextMonth = computed(() => CalendarUtils.addMonths(currentYm, 1));
 
   const targetYearMonth = ref(defaultNextMonth.value);
-  const selectedShiftId = ref("SHIFT_LUNCH");
+  const selectedShiftId = ref(ShiftUtils.ids[0]);
   const isSelectingCurrentMonth = computed(() => targetYearMonth.value === currentYm);
 
   const isMonthLocked = (ymStr) => {
@@ -26,23 +23,13 @@ function useAvailabilityModule(core) {
     const isNextMonth = (y > currentYear) || (y === currentYear && m === currentMonth + 1);
     if (isNextMonth) {
       const lastDay = new Date(currentYear, currentMonth, 0).getDate();
-      return currentDay >= (lastDay - 2);
+      return currentDay >= (lastDay - APP_CONFIG.RULES.FILL_LOCK_DAYS_BEFORE_MONTH_END);
     }
     return (y < currentYear || (y === currentYear && m < currentMonth));
   };
 
   const employeeRollingMonths = computed(() => {
-    const list = [];
-    for (let i = 0; i <= 3; i++) {
-      const d = new Date(currentYear, currentMonth - 1 + i, 1);
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, '0');
-      list.push({
-        value: `${y}-${m}`,
-        label: `${y} 年 ${m} 月`
-      });
-    }
-    return list;
+    return [0, 1, 2, 3].map(i => CalendarUtils.monthOption(CalendarUtils.addMonths(currentYm, i)));
   });
 
   const isCurrentMonthLocked = computed(() => isMonthLocked(targetYearMonth.value));
@@ -54,7 +41,6 @@ function useAvailabilityModule(core) {
     day_preference: "Flexible"
   });
 
-  const colleagueList = ref([]);
   const monthCalendar = ref([]);
   const blankDaysBeforeMonth = ref(0);
   const availabilityMap = reactive({});
@@ -71,7 +57,7 @@ function useAvailabilityModule(core) {
     if (isCurrentMonthLocked.value) return;
     const dStr = CalendarUtils.normalizeDateStr(dateStr);
     if (!availabilityMap[dStr]) {
-      availabilityMap[dStr] = { SHIFT_LUNCH: false, SHIFT_DINNER: false };
+      availabilityMap[dStr] = ShiftUtils.emptyFlags();
     }
     availabilityMap[dStr][selectedShiftId.value] = !availabilityMap[dStr][selectedShiftId.value];
   };
@@ -80,7 +66,7 @@ function useAvailabilityModule(core) {
     if (isCurrentMonthLocked.value) return;
     monthCalendar.value.forEach(item => {
       if (!availabilityMap[item.dateStr]) {
-        availabilityMap[item.dateStr] = { SHIFT_LUNCH: false, SHIFT_DINNER: false };
+        availabilityMap[item.dateStr] = ShiftUtils.emptyFlags();
       }
       availabilityMap[item.dateStr][selectedShiftId.value] = state;
     });
@@ -98,7 +84,7 @@ function useAvailabilityModule(core) {
     Object.keys(dayNotes).forEach(k => delete dayNotes[k]);
 
     grid.days.forEach(item => {
-      availabilityMap[item.dateStr] = { SHIFT_LUNCH: false, SHIFT_DINNER: false };
+      availabilityMap[item.dateStr] = ShiftUtils.emptyFlags();
       dayNotes[item.dateStr] = "";
     });
   };
@@ -128,8 +114,7 @@ function useAvailabilityModule(core) {
           if (res.savedAvailabilityMap) {
             for (const [dStr, shifts] of Object.entries(res.savedAvailabilityMap)) {
               if (availabilityMap[dStr]) {
-                availabilityMap[dStr].SHIFT_LUNCH = Boolean(shifts.SHIFT_LUNCH);
-                availabilityMap[dStr].SHIFT_DINNER = Boolean(shifts.SHIFT_DINNER);
+                ShiftUtils.ids.forEach(id => { availabilityMap[dStr][id] = Boolean(shifts[id]); });
               }
             }
           }
@@ -246,7 +231,7 @@ function useAvailabilityModule(core) {
 
   return {
     targetYearMonth, selectedShiftId, isCurrentMonthLocked, isSelectingCurrentMonth,
-    employeeRollingMonths, defaultNextMonth, formPreferences, colleagueList, monthCalendar,
+    employeeRollingMonths, defaultNextMonth, formPreferences, monthCalendar,
     blankDaysBeforeMonth, availabilityMap, dayNotes, otherShiftId, isDateShiftSelected,
     toggleDateShift, batchSelectCurrentShift, generateCalendar, stats, adviceInfo,
     submitAvailability, unlockedMonthsSet, isTempUnlockedForMe, unlockExpireAt, unlockCountdownText,

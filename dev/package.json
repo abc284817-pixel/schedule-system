@@ -1,0 +1,13 @@
+{
+  "name": "schedule-system-dev",
+  "private": true,
+  "description": "本機回歸測試工具（不推上 Apps Script）",
+  "scripts": {
+    "backend": "node backend_diff.js",
+    "ui": "node ui_diff.js"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.65.1",
+    "vue": "^3.5.0"
+  }
+}
