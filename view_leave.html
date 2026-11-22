@@ -1,0 +1,170 @@
+<section v-if="activeTab === 'leave'" class="space-y-6">
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+
+    <!-- 左欄：提出請假/代班申請 -->
+    <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+      <h2 class="text-base font-bold text-slate-900 mb-4 flex items-center">
+        <span class="w-2 h-4 bg-amber-500 rounded mr-2"></span>
+        提出請假 / 代班申請
+      </h2>
+      <div class="space-y-4">
+        
+        <!-- 欲請假之月份 -->
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">欲請假之月份</label>
+          <select
+            v-model="leaveFilterMonth"
+            @change="onLeaveFilterMonthChange"
+            :class="!leaveFilterMonth ? 'text-slate-400' : 'text-slate-800 font-medium'"
+            class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-slate-50 [font-feature-settings:'tnum'] focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-colors"
+          >
+            <option value="" disabled>-- 請選擇欲請假之月份 --</option>
+            <option v-for="m in leaveSelectableMonths" :key="'leave-m-' + m.value" :value="m.value">
+              {{ m.label }}
+            </option>
+          </select>
+        </div>
+
+        <!-- 欲請假之出勤班次 -->
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">欲請假之出勤班次</label>
+          <select
+            v-model="selectedAssignedShiftIndex"
+            @change="onSelectedShiftChange"
+            :class="selectedAssignedShiftIndex === -1 ? 'text-slate-400' : 'text-slate-800 font-medium'"
+            class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm [font-feature-settings:'tnum'] focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-colors"
+          >
+            <option :value="-1" disabled>-- 請選擇您正式出勤的班別 --</option>
+            <option v-for="(shift, idx) in formattedAssignedShifts" :key="shift.date + shift.shift_id" :value="idx">
+              {{ shift.displayLabel }}
+            </option>
+          </select>
+          
+          <p v-if="leaveFilterMonth && myAssignedShifts.length === 0" class="text-xs text-rose-500 mt-1.5 [font-feature-settings:'tnum']">
+            ⚠️ 提示：{{ leaveFilterMonth }} 月份中尚無您可請假之出勤班次（歷史班次已自動過濾）。
+          </p>
+        </div>
+
+        <!-- 請假假別：新增婚假，特休置底 -->
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">請假假別</label>
+          <select
+            v-model="leaveForm.leave_type"
+            :class="!leaveForm.leave_type ? 'text-slate-400' : 'text-slate-800 font-medium'"
+            class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-colors"
+          >
+            <option value="" disabled>-- 請選擇請假假別 --</option>
+            <option value="事假">事假</option>
+            <option value="病假">病假</option>
+            <option value="公假">公假</option>
+            <option value="喪假">喪假</option>
+            <option value="婚假">婚假</option>
+            <option value="特休">特休</option>
+          </select>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">請假詳細事由</label>
+          <textarea
+            v-model="leaveForm.reason_detail"
+            rows="2"
+            placeholder="請輸入具體請假原因..."
+            class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+          ></textarea>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-600 mb-1">是否已找到代班人員？</label>
+          <div class="flex space-x-4 mt-1">
+            <label class="flex items-center text-xs text-slate-700 cursor-pointer">
+              <input type="radio" :value="true" v-model="leaveForm.has_substitute" class="mr-1.5" /> 已找到代班人
+            </label>
+            <label class="flex items-center text-xs text-slate-700 cursor-pointer">
+              <input type="radio" :value="false" v-model="leaveForm.has_substitute" class="mr-1.5" /> 未找到 (由店長調派)
+            </label>
+          </div>
+        </div>
+
+        <!-- 代班同仁選單 -->
+        <div v-if="leaveForm.has_substitute">
+          <div class="flex justify-between items-center mb-1">
+            <label class="block text-xs font-semibold text-slate-600">代班同仁姓名</label>
+            <span v-if="isCurrentShiftSoleCore" class="text-[10px] text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 font-bold">
+              ★ 您為當班唯一核心，僅能由核心同仁代班
+            </span>
+          </div>
+
+          <select
+            v-model="leaveForm.substitute_id"
+            :class="!leaveForm.substitute_id ? 'text-slate-400' : 'text-slate-800 font-medium'"
+            class="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none transition-colors"
+          >
+            <option value="" disabled>-- 請選擇代班同事 --</option>
+            <option v-for="c in eligibleSubstitutes" :key="'sub-' + c.employee_id" :value="c.employee_id">
+              {{ c.name }} {{ c.is_core ? '[核心]' : '' }}
+            </option>
+          </select>
+          
+          <p v-if="eligibleSubstitutes.length === 0" class="text-xs text-rose-500 mt-1">
+            ⚠️ 提示：該班次無合規可用之代班同仁（全員該班皆有排班或無符合核心資格者），請改選「未找到代班人」由店長統籌調派。
+          </p>
+        </div>
+
+        <button
+          @click="handleSubmitLeave"
+          :disabled="isSubmitting || selectedAssignedShiftIndex === -1 || !leaveForm.leave_type"
+          class="w-full py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-lg text-sm transition disabled:opacity-50 cursor-pointer"
+        >
+          {{ isSubmitting ? '送出中...' : '送交店長審核' }}
+        </button>
+      </div>
+    </div>
+
+    <!-- 右欄：紀錄清單 -->
+    <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+      <div class="flex justify-between items-center mb-3">
+        <h3 class="text-sm font-bold text-slate-800 flex items-center">
+          <span class="w-2 h-4 bg-slate-700 rounded mr-2"></span>
+          我的請假申請紀錄
+        </h3>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs border-collapse">
+          <thead>
+            <tr class="bg-slate-100 text-slate-700">
+              <th class="p-2 border">申請日期</th>
+              <th class="p-2 border">班別</th>
+              <th class="p-2 border">假別</th>
+              <th class="p-2 border">代班人</th>
+              <th class="p-2 border">審批狀態</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="req in myLeaveList" :key="req.request_id" class="border-b hover:bg-slate-50">
+              <td class="p-2 border [font-feature-settings:'tnum']">{{ req.date }}</td>
+              <td class="p-2 border">{{ req.shift_id === 'SHIFT_LUNCH' ? '午班' : '晚班' }}</td>
+              <td class="p-2 border font-semibold text-indigo-700">{{ req.leave_type }}</td>
+              <td class="p-2 border">{{ req.substitute_name }}</td>
+              <td class="p-2 border">
+                <span
+                  :class="{
+                    'bg-emerald-50 text-emerald-600': req.status === 'Approved',
+                    'bg-rose-50 text-rose-600': req.status === 'Rejected',
+                    'bg-amber-50 text-amber-600': req.status === 'Pending'
+                  }"
+                  class="px-2 py-0.5 rounded font-medium"
+                >
+                  {{ req.status === 'Approved' ? '已核准' : (req.status === 'Rejected' ? '已駁回' : '待審核') }}
+                </span>
+              </td>
+            </tr>
+            <tr v-if="myLeaveList.length === 0">
+              <td colspan="5" class="p-4 text-center text-slate-400">尚無請假申請紀錄</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</section>

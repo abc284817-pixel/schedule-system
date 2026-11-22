@@ -1,0 +1,273 @@
+<section v-if="activeTab === 'employee'" class="space-y-6">
+ <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+   <h2 class="text-base font-bold text-slate-900 mb-4 flex items-center">
+     <span class="w-2 h-4 bg-indigo-600 rounded mr-2"></span>
+     排班設定與出勤偏好配置
+   </h2>
+  
+   <div class="grid grid-cols-1 md:grid-cols-6 gap-3.5">
+     <div>
+       <label class="block text-xs font-semibold text-slate-600 mb-1.5">當前編輯班別</label>
+       <select v-model="selectedShiftId" class="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-medium text-slate-800 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all">
+         <option value="SHIFT_LUNCH">午班 (10:30 - 14:30)</option>
+         <option value="SHIFT_DINNER">晚班 (17:30 - 21:30)</option>
+       </select>
+     </div>
+
+     <div>
+       <label class="block text-xs font-semibold text-slate-600 mb-1.5">填報月份</label>
+       <select v-model="targetYearMonth" @change="onYearMonthChange" class="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-medium text-slate-800 bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all">
+         <option v-for="m in employeeRollingMonths" :key="'fill-' + m.value" :value="m.value">
+           {{ m.label }}
+         </option>
+       </select>
+     </div>
+
+     <div>
+       <label class="block text-xs font-semibold text-slate-600 mb-1.5">工時意願傾向</label>
+       <select v-model="formPreferences.work_volume" :disabled="isCurrentMonthLocked" class="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-medium text-slate-800 bg-white disabled:bg-slate-100 disabled:text-slate-400 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all">
+         <option value="More">高工時需求</option>
+         <option value="Standard">標準工時</option>
+         <option value="Less">彈性減班</option>
+       </select>
+     </div>
+
+     <div>
+       <label class="block text-xs font-semibold text-slate-600 mb-1.5">單日排班偏好</label>
+       <select v-model="formPreferences.day_preference" :disabled="isCurrentMonthLocked" class="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-medium text-slate-800 bg-white disabled:bg-slate-100 disabled:text-slate-400 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all">
+         <option value="Flexible">彈性安排</option>
+         <option value="Both_Preferred">全日班</option>
+         <option value="Single_Preferred">單一班次</option>
+       </select>
+     </div>
+
+     <div>
+       <label class="block text-xs font-semibold text-slate-600 mb-1.5">偏好搭班同仁</label>
+       <select v-model="formPreferences.partner_id" :disabled="isCurrentMonthLocked" class="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-medium text-slate-800 bg-white disabled:bg-slate-100 disabled:text-slate-400 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all">
+         <option value="">無特定偏好</option>
+         <option v-for="c in colleagueList" :key="'p-' + c.employee_id" :value="c.employee_id">
+           {{ c.name }}
+         </option>
+       </select>
+     </div>
+
+     <div>
+       <label class="block text-xs font-semibold text-rose-600 mb-1.5">迴避搭班同仁</label>
+       <select v-model="formPreferences.dislike_partner_id" :disabled="isCurrentMonthLocked" class="w-full px-3 py-2 border border-rose-200 rounded-xl text-xs font-medium text-slate-800 bg-rose-50/20 disabled:bg-slate-100 disabled:text-slate-400 focus:ring-2 focus:ring-rose-400 focus:border-rose-400 transition-all">
+         <option value="">無特定迴避對象</option>
+         <option v-for="c in colleagueList" :key="'dp-' + c.employee_id" :value="c.employee_id">
+           {{ c.name }}
+         </option>
+       </select>
+     </div>
+   </div>
+ </div>
+
+ <div v-if="!isCurrentMonthLocked && isTempUnlockedForMe" class="bg-emerald-50 border border-emerald-300 p-3.5 rounded-2xl flex items-center justify-between text-emerald-800 text-xs shadow-xs">
+   <div class="flex items-center space-x-2">
+     <span class="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-ping"></span>
+     <span class="font-bold">店長已為您臨時解鎖 {{ targetYearMonth }} 意願填報權限！</span>
+   </div>
+   <div class="font-extrabold bg-white px-2.5 py-1 rounded border border-emerald-300 text-emerald-700">
+     剩餘時間：{{ unlockCountdownText }}
+   </div>
+ </div>
+
+ <div v-else-if="isCurrentMonthLocked" class="bg-rose-50 border border-rose-200 p-4 rounded-2xl flex items-center justify-between text-rose-700 text-xs">
+   <span>🔒 <strong>唯讀保護狀態：</strong>{{ isSelectingCurrentMonth ? '當前月份排班已正式生效，處於唯讀狀態。' : '已進入當月最後 3 天，下月工時選填已截止。' }}若需補填或異動請聯繫店長為您開放臨時權限。</span>
+ </div>
+
+ <div :class="adviceInfo.themeClass" class="border p-4 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4 transition-colors">
+   <div>
+     <div class="flex items-center space-x-2">
+       <span :class="adviceInfo.badgeClass" class="text-xs font-bold px-2 py-0.5 rounded">
+         排班即時檢驗
+       </span>
+       <span :class="adviceInfo.textAccentClass" class="text-xs font-semibold">模式：{{ adviceInfo.label }}</span>
+     </div>
+     <p class="text-sm mt-1.5 text-slate-800">
+       目前全月已選取 <span :class="adviceInfo.boldCountClass" class="font-extrabold">{{ stats.uniqueDaysCount }}</span> 天出勤
+       (午班 {{ stats.lunchCount }} 天、晚班 {{ stats.dinnerCount }} 天)
+     </p>
+     <p class="text-xs text-slate-600 mt-0.5">
+       {{ adviceInfo.description }}
+     </p>
+   </div>
+ </div>
+
+ <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+   <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4 pb-3 border-b border-slate-100">
+     <div>
+       <h2 class="text-base font-bold text-slate-900">
+         <span>{{ targetYearMonth }}</span> 工時填報
+         <span class="ml-2 text-xs font-normal text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
+           當前編輯：{{ selectedShiftId === 'SHIFT_LUNCH' ? '午班 (10:30-14:30)' : '晚班 (17:30-21:30)' }}
+         </span>
+       </h2>
+     </div>
+     <div v-if="!isCurrentMonthLocked" class="flex space-x-2">
+       <button @click="batchSelectCurrentShift(true)" class="text-xs px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition">
+         本班別全選
+       </button>
+       <button @click="batchSelectCurrentShift(false)" class="text-xs px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition">
+         本班別清空
+       </button>
+     </div>
+   </div>
+
+   <!-- 電腦版月曆視圖 (含個人備忘輸入框) -->
+   <div class="hidden md:block">
+     <div class="grid grid-cols-7 gap-2 mb-2 text-center text-xs font-bold text-slate-500">
+       <div class="py-1 text-rose-500">週日</div>
+       <div class="py-1">週一</div>
+       <div class="py-1">週二</div>
+       <div class="py-1">週三</div>
+       <div class="py-1">週四</div>
+       <div class="py-1">週五</div>
+       <div class="py-1 text-indigo-500">週六</div>
+     </div>
+     <div class="grid grid-cols-7 gap-2">
+       <div v-for="blank in blankDaysBeforeMonth" :key="'blank-' + blank" class="h-36 bg-slate-50/40 rounded-xl border border-dashed border-slate-200"></div>
+       <div
+         v-for="item in monthCalendar"
+         :key="item.dateStr"
+         :class="[
+           isDateShiftSelected(item.dateStr)
+             ? 'bg-indigo-50 border-indigo-500 shadow-sm ring-2 ring-indigo-400'
+             : 'bg-white hover:bg-slate-50 border-slate-200',
+           isCurrentMonthLocked ? 'opacity-70 pointer-events-none bg-slate-50' : ''
+         ]"
+         class="h-36 p-2 rounded-xl border transition-all flex flex-col justify-between overflow-hidden"
+       >
+         <div @click="!isCurrentMonthLocked && toggleDateShift(item.dateStr)" :class="isCurrentMonthLocked ? 'cursor-not-allowed' : 'cursor-pointer'" class="select-none flex-1">
+           <div class="flex justify-between items-start">
+             <div class="flex items-baseline space-x-1">
+               <span :class="isDateShiftSelected(item.dateStr) ? 'text-indigo-900 font-extrabold' : 'text-slate-700 font-medium'" class="text-sm">
+                 {{ item.dayNumber }}
+               </span>
+               <span
+                 v-if="getHolidayInfo(item.dateStr)"
+                 :class="getHolidayInfo(item.dateStr).isDoublePay ? 'text-rose-600 font-bold bg-rose-50 px-1 py-0.5 rounded border border-rose-200' : 'text-indigo-700 font-semibold bg-indigo-50 px-1 py-0.5 rounded'"
+                 class="text-xs"
+               >
+                 {{ getHolidayInfo(item.dateStr).name }}
+               </span>
+             </div>
+             <span
+               v-if="availabilityMap[item.dateStr] && availabilityMap[item.dateStr][otherShiftId]"
+               class="w-2.5 h-2.5 rounded-full bg-emerald-500"
+               :title="'已勾選' + (otherShiftId === 'SHIFT_LUNCH' ? '午班' : '晚班')">
+             </span>
+           </div>
+           <div class="text-right mt-1">
+             <span
+               v-if="isDateShiftSelected(item.dateStr)"
+               class="inline-block text-[10px] px-2 py-0.5 bg-indigo-600 text-white rounded font-bold shadow-xs"
+             >
+               ✓ 出勤
+             </span>
+             <span v-else class="text-[10px] text-slate-300 font-normal">休假</span>
+           </div>
+         </div>
+         <div class="mt-auto" @click.stop>
+           <textarea
+             v-model="dayNotes[item.dateStr]"
+             rows="3"
+             maxlength="50"
+             :disabled="isCurrentMonthLocked"
+             placeholder="備忘(限50字)..."
+             class="w-full text-[10px] p-1 border border-slate-200 rounded focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-white/90 text-slate-700 resize-none h-16 overflow-y-auto no-scrollbar disabled:bg-slate-100"
+           ></textarea>
+         </div>
+       </div>
+     </div>
+   </div>
+
+   <!-- 手機版月曆視圖 (含個人備忘輸入框) -->
+   <div class="block md:hidden space-y-2.5">
+     <div class="text-[11px] text-slate-500 bg-slate-50 p-2.5 rounded-xl border border-slate-200 flex items-center justify-between">
+       <span>💡 點擊右側方塊即可切換「{{ selectedShiftId === 'SHIFT_LUNCH' ? '午班' : '晚班' }}」出勤</span>
+       <span class="flex items-center space-x-1">
+         <span class="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
+         <span>另班已選</span>
+       </span>
+     </div>
+     <div
+       v-for="item in monthCalendar"
+       :key="'m-' + item.dateStr"
+       :class="[
+         isDateShiftSelected(item.dateStr)
+           ? 'bg-indigo-50/70 border-indigo-300 ring-1 ring-indigo-400'
+           : 'bg-white border-slate-200',
+         isCurrentMonthLocked ? 'opacity-75' : ''
+       ]"
+       class="p-3 rounded-2xl border transition-all space-y-2 shadow-2xs"
+     >
+       <div class="flex items-center justify-between">
+         <div class="flex items-center space-x-2.5">
+           <div
+             class="w-11 h-11 rounded-xl flex flex-col items-center justify-center font-bold border shrink-0"
+             :class="item.weekday === '日' ? 'bg-rose-50 border-rose-200 text-rose-600' : (item.weekday === '六' ? 'bg-indigo-50 border-indigo-200 text-indigo-600' : 'bg-slate-50 border-slate-200 text-slate-800')"
+           >
+             <span class="text-base font-extrabold leading-none [font-feature-settings:'tnum']">{{ item.dayNumber }}</span>
+             <span class="text-[10px] leading-none mt-0.5">週{{ item.weekday }}</span>
+           </div>
+           <div>
+             <div class="flex items-center space-x-1.5">
+               <span class="text-xs font-bold text-slate-800 font-mono">{{ item.dateStr }}</span>
+               <span
+                 v-if="availabilityMap[item.dateStr] && availabilityMap[item.dateStr][otherShiftId]"
+                 class="px-1.5 py-0.2 bg-emerald-100 text-emerald-700 text-[10px] font-bold rounded-full"
+               >
+                 {{ otherShiftId === 'SHIFT_LUNCH' ? '午班已排' : '晚班已排' }}
+               </span>
+             </div>
+             <div v-if="getHolidayInfo(item.dateStr)" class="mt-0.5">
+               <span
+                 :class="getHolidayInfo(item.dateStr).isDoublePay ? 'text-rose-600 font-bold bg-rose-50 px-1 py-0.5 rounded border border-rose-200' : 'text-indigo-700 font-semibold bg-indigo-50 px-1 py-0.5 rounded'"
+                 class="text-[10px]"
+               >
+                 {{ getHolidayInfo(item.dateStr).name }}
+               </span>
+             </div>
+           </div>
+         </div>
+         <button
+           type="button"
+           @click="!isCurrentMonthLocked && toggleDateShift(item.dateStr)"
+           :disabled="isCurrentMonthLocked"
+           class="px-4 py-2.5 rounded-xl text-xs font-black transition-all flex items-center space-x-1.5 cursor-pointer shadow-2xs select-none min-w-[88px] justify-center"
+           :class="isDateShiftSelected(item.dateStr)
+             ? 'bg-indigo-600 text-white shadow-indigo-200 active:scale-95'
+             : 'bg-slate-100 hover:bg-slate-200 text-slate-400 active:bg-slate-200'"
+         >
+           <span v-if="isDateShiftSelected(item.dateStr)">✓ 已出勤</span>
+           <span v-else>休假</span>
+         </button>
+       </div>
+       <div class="pt-1 border-t border-slate-100">
+         <input
+           type="text"
+           v-model="dayNotes[item.dateStr]"
+           maxlength="50"
+           :disabled="isCurrentMonthLocked"
+           placeholder="點此填寫該日個人備忘 (限50字)..."
+           class="w-full text-xs px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-700 placeholder-slate-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:bg-slate-100"
+         />
+       </div>
+     </div>
+   </div>
+
+   <div class="mt-6 pt-4 border-t border-slate-100 flex items-center justify-end">
+     <button
+       v-if="!isCurrentMonthLocked"
+       @click="handleSubmitAvailability"
+       :disabled="isSubmitting"
+       class="w-full sm:w-auto px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg text-sm transition shadow-sm disabled:opacity-50"
+     >
+       {{ isSubmitting ? '儲存中...' : '確認並送出排班意願' }}
+     </button>
+     <span v-else class="text-xs text-rose-600 font-bold">已鎖定：僅供檢視</span>
+   </div>
+ </div>
+</section>

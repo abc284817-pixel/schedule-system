@@ -1,0 +1,510 @@
+<script>
+function useScheduleAdminModule(core, avail) {
+  const scheduleViewMode = ref("calendar"); // 'calendar' | 'table'
+  const scheduleList = ref([]);
+  const scheduleConflicts = ref([]);
+  const allStaffList = ref([]);
+  const pendingLeaves = ref([]);
+  const leaveAuditHistory = ref([]);
+  const monthlyStatsList = ref([]);
+  const rawUnlockRegistry = ref([]);
+  const hiddenConflictIds = reactive(new Set());
+  const showConflictBanner = ref(true);
+  const showAddStaffModal = ref(false);
+  const filterScheduleDate = ref("");
+  const isRefreshingSchedule = ref(false);
+  const isArchiving = ref(false);
+  const showArchiveTooltip = ref(false);
+
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+  const currentYm = `${currentYear}-${String(currentMonth).padStart(2, '0')}`;
+
+  // 預設選取下個月
+  const scheduleTargetYearMonth = ref(avail && avail.defaultNextMonth ? avail.defaultNextMonth.value : "2026-11");
+
+  // 歷史封存候選清單（過去 2 ~ 12 個月）
+  const archiveCandidateMonths = computed(() => {
+    const list = [];
+    for (let i = 2; i <= 12; i++) {
+      const d = new Date(currentYear, currentMonth - 1 - i, 1);
+      const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      list.push({
+        value: ym,
+        label: `${d.getFullYear()} 年 ${String(d.getMonth() + 1).padStart(2, '0')} 月`
+      });
+    }
+    return list;
+  });
+
+  const archiveCutoffMonth = ref(archiveCandidateMonths.value[0] ? archiveCandidateMonths.value[0].value : "");
+
+  const canRunArchiveForCutoff = computed(() => {
+    if (!archiveCutoffMonth.value) return false;
+    const [ay, am] = archiveCutoffMonth.value.split("-").map(Number);
+    const cutoffDate = new Date(ay, am - 1, 1);
+    const safeThreshold = new Date(currentYear, currentMonth - 3, 1);
+    return cutoffDate <= safeThreshold;
+  });
+
+  // 批次新增人手暫存配置
+  const newShiftBatchConfig = reactive({
+    date: "",
+    shift_id: "SHIFT_LUNCH",
+    count: 1
+  });
+
+  const newShiftBatchSlots = ref([
+    { employee_id: "", dispatch_type: "Assigned" }
+  ]);
+
+  const onBatchCountChange = () => {
+    const targetCount = Number(newShiftBatchConfig.count) || 1;
+    while (newShiftBatchSlots.value.length < targetCount) {
+      newShiftBatchSlots.value.push({ employee_id: "", dispatch_type: "Assigned" });
+    }
+    while (newShiftBatchSlots.value.length > targetCount) {
+      newShiftBatchSlots.value.pop();
+    }
+  };
+
+  const isBatchFormValid = computed(() => {
+    if (!newShiftBatchConfig.date || !newShiftBatchConfig.shift_id) return false;
+    const filled = newShiftBatchSlots.value.filter(s => s.employee_id);
+    return filled.length > 0;
+  });
+
+  const validBatchCount = computed(() => {
+    return newShiftBatchSlots.value.filter(s => s.employee_id).length;
+  });
+
+  // 臨時解鎖表單
+  const unlockForm = reactive({
+    yearMonth: computed(() => scheduleTargetYearMonth.value),
+    targetEmpId: "",
+    hours: 1
+  });
+
+  const activeUnlockList = computed(() => {
+    return rawUnlockRegistry.value.map(item => {
+      const diff = Math.max(0, Math.floor((item.expireAt - (core.currentTimestamp ? core.currentTimestamp.value.getTime() : Date.now())) / 1000));
+      const hh = String(Math.floor(diff / 3600)).padStart(2, '0');
+      const mm = String(Math.floor((diff % 3600) / 60)).padStart(2, '0');
+      const ss = String(diff % 60).padStart(2, '0');
+      return {
+        ...item,
+        countdown: `${hh}:${mm}:${ss}`
+      };
+    });
+  });
+
+  const executeUnlockMonth = () => {
+    core.isSubmitting.value = true;
+    google.script.run
+      .withSuccessHandler((res) => {
+        core.isSubmitting.value = false;
+        if (res && res.success) {
+          core.triggerStickyAlert(res.message, "success");
+          rawUnlockRegistry.value = res.unlockRegistry || [];
+        } else {
+          core.triggerStickyAlert((res && res.message) ? res.message : "解鎖失敗", "error");
+        }
+      })
+      .withFailureHandler((err) => {
+        core.isSubmitting.value = false;
+        core.triggerStickyAlert("解鎖失敗: " + err.message, "error");
+      })
+      .apiSetUnlockFillPermission(core.token.value, unlockForm.yearMonth, unlockForm.hours, unlockForm.targetEmpId);
+  };
+
+  const isStaffCore = (empId) => {
+    const s = allStaffList.value.find(x => x.employee_id === empId);
+    return s ? Boolean(s.is_core) : false;
+  };
+
+  const normalizeDate = (dStr) => {
+    if (!dStr) return "";
+    const s = String(dStr).trim();
+    const m = s.match(/^(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})/);
+    if (m) {
+      return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+    }
+    return s.substring(0, 10);
+  };
+
+  // 待存調度追蹤 (Diff 機制)
+  const draftUpdates = reactive({});
+  const draftAdditions = ref([]);
+  const draftDeletions = reactive(new Set());
+
+  const hasPendingChanges = computed(() => {
+    return Object.keys(draftUpdates).length > 0 || draftAdditions.value.length > 0 || draftDeletions.size > 0;
+  });
+
+  const totalPendingChangesCount = computed(() => {
+    return Object.keys(draftUpdates).length + draftAdditions.value.length + draftDeletions.size;
+  });
+
+  // =========================================================================
+  // ⚡ 方案 A 核心性能優化：$O(1) 高速查表 Map 快取
+  // =========================================================================
+  const busyStaffMap = computed(() => {
+    const map = new Map();
+
+    const addEntry = (dateStr, shiftId, empId) => {
+      if (!dateStr || !shiftId || !empId) return;
+      const key = `${normalizeDate(dateStr)}_${String(shiftId).trim()}`;
+      if (!map.has(key)) {
+        map.set(key, new Set());
+      }
+      map.get(key).add(empId);
+    };
+
+    scheduleList.value.forEach(s => {
+      if (draftDeletions.has(s.schedule_id)) return;
+      const empId = draftUpdates[s.schedule_id] ? draftUpdates[s.schedule_id].employee_id : s.employee_id;
+      addEntry(s.date, s.shift_id, empId);
+    });
+
+    draftAdditions.value.forEach(a => {
+      addEntry(a.date, a.shift_id, a.employee_id);
+    });
+
+    return map;
+  });
+
+  const isStaffAlreadyInSpecificShift = (dateStr, shiftId, empId) => {
+    if (!dateStr || !shiftId || !empId) return false;
+    const key = `${normalizeDate(dateStr)}_${String(shiftId).trim()}`;
+    const set = busyStaffMap.value.get(key);
+    return set ? set.has(empId) : false;
+  };
+
+  const getScheduleForDateAndShift = (dateStr, shiftId) => {
+    const targetD = normalizeDate(dateStr);
+    const targetShift = String(shiftId).trim();
+    return scheduleList.value.filter(s => {
+      return normalizeDate(s.date) === targetD && String(s.shift_id).trim() === targetShift;
+    });
+  };
+
+  const isShiftDeficit = (dateStr, shiftId) => {
+    const assigned = getScheduleForDateAndShift(dateStr, shiftId).filter(s => s.dispatch_type === 'Assigned');
+    return assigned.length < 5;
+  };
+
+  // ⚡ 衝突通報排序權重：
+  // Level 1: 160 小時工時超標 (絕對置頂)
+  // Level 2: 四週例休不足違規 (未滿 8 天 / 出勤 > 20 天)
+  // 同級時：單純依員工代碼 (EMPxxx) 升冪排序
+  // Level 3: 一般門市營運缺工與排班衝突 (依日期與班別排)
+// 衝突通報：由左至右、法規強制置頂、日期排序、先午班再晚班
+ const displayConflictsList = computed(() => {
+   const shiftPriority = { 'SHIFT_LUNCH': 1, 'SHIFT_DINNER': 2 };
+   return scheduleConflicts.value
+     .filter(c => !hiddenConflictIds.has(c.conflict_id))
+     .slice()
+     .sort((a, b) => {
+       // 🚨 真正的架構級置頂：只要是法規違規，權重為 0 (最頂)，一般缺工為 1
+       const isLegalA = (a.reason.includes('七休一') || a.reason.includes('160') || a.reason.includes('工時') || a.reason.includes('例休')) ? 0 : 1;
+       const isLegalB = (b.reason.includes('七休一') || b.reason.includes('160') || b.reason.includes('工時') || b.reason.includes('例休')) ? 0 : 1;
+       if (isLegalA !== isLegalB) return isLegalA - isLegalB;
+
+       // 同權重下，再依日期排序
+       const dateA = normalizeDate(a.date);
+       const dateB = normalizeDate(b.date);
+       const dComp = dateA.localeCompare(dateB);
+       if (dComp !== 0) return dComp;
+  
+       const prioA = shiftPriority[a.shift_id] || 99;
+       const prioB = shiftPriority[b.shift_id] || 99;
+       if (prioA !== prioB) return prioA - prioB;
+  
+       return String(a.conflict_id).localeCompare(String(b.conflict_id));
+     });
+ });
+
+  const dismissSingleConflict = (id) => {
+    hiddenConflictIds.add(id);
+  };
+
+  const canEditScheduleForFilterMonth = computed(() => {
+    const ym = scheduleTargetYearMonth.value;
+    if (!ym) return false;
+    return ym > currentYm;
+  });
+
+  const uniqueScheduleDates = computed(() => {
+    const set = new Set();
+    scheduleList.value.forEach(s => {
+      if (s.date) set.add(normalizeDate(s.date));
+    });
+    return Array.from(set).sort();
+  });
+
+  const formattedScheduleDates = computed(() => {
+    return uniqueScheduleDates.value.map(d => ({
+      value: d,
+      label: d
+    }));
+  });
+
+  const filteredDisplayScheduleList = computed(() => {
+    let list = scheduleList.value
+      .filter(s => !draftDeletions.has(s.schedule_id))
+      .map(s => {
+        if (draftUpdates[s.schedule_id]) {
+          return {
+            ...s,
+            ...draftUpdates[s.schedule_id],
+            _isDraftUpdated: true
+          };
+        }
+        return s;
+      });
+
+    draftAdditions.value.forEach(a => {
+      list.push({ ...a, _isDraftNew: true });
+    });
+
+    if (filterScheduleDate.value) {
+      list = list.filter(s => normalizeDate(s.date) === filterScheduleDate.value);
+    }
+
+    const shiftPriority = { 'SHIFT_LUNCH': 1, 'SHIFT_DINNER': 2 };
+    return list.sort((a, b) => {
+      const dComp = normalizeDate(a.date).localeCompare(normalizeDate(b.date));
+      if (dComp !== 0) return dComp;
+      return (shiftPriority[a.shift_id] || 99) - (shiftPriority[b.shift_id] || 99);
+    });
+  });
+
+  const handleDraftStaffChange = (item, event) => {
+    const newId = event.target.value;
+    if (item._isDraftNew) {
+      item.employee_id = newId;
+      const s = allStaffList.value.find(x => x.employee_id === newId);
+      item.employee_name = s ? s.name : newId;
+      item.is_core_at_work = s ? Boolean(s.is_core) : false;
+    } else {
+      if (!draftUpdates[item.schedule_id]) {
+        draftUpdates[item.schedule_id] = {
+          schedule_id: item.schedule_id,
+          employee_id: item.employee_id,
+          dispatch_type: item.dispatch_type
+        };
+      }
+      draftUpdates[item.schedule_id].employee_id = newId;
+    }
+  };
+
+  const handleDraftTypeChange = (item, newType) => {
+    if (item._isDraftNew) {
+      item.dispatch_type = newType;
+    } else {
+      if (!draftUpdates[item.schedule_id]) {
+        draftUpdates[item.schedule_id] = {
+          schedule_id: item.schedule_id,
+          employee_id: item.employee_id,
+          dispatch_type: item.dispatch_type
+        };
+      }
+      draftUpdates[item.schedule_id].dispatch_type = newType;
+    }
+  };
+
+  const handleDraftDeleteShift = (item) => {
+    if (item._isDraftNew) {
+      const idx = draftAdditions.value.findIndex(a => a.schedule_id === item.schedule_id);
+      if (idx !== -1) draftAdditions.value.splice(idx, 1);
+    } else {
+      draftDeletions.add(item.schedule_id);
+      delete draftUpdates[item.schedule_id];
+    }
+  };
+
+  const addNewStaffToDraft = () => {
+    const validSlots = newShiftBatchSlots.value.filter(s => s.employee_id);
+    validSlots.forEach(slot => {
+      const staff = allStaffList.value.find(x => x.employee_id === slot.employee_id);
+      const tempId = "DRAFT_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6);
+      draftAdditions.value.push({
+        schedule_id: tempId,
+        date: newShiftBatchConfig.date,
+        shift_id: newShiftBatchConfig.shift_id,
+        employee_id: slot.employee_id,
+        employee_name: staff ? staff.name : slot.employee_id,
+        is_core_at_work: staff ? Boolean(staff.is_core) : false,
+        dispatch_type: slot.dispatch_type,
+        status: "Draft"
+      });
+    });
+    showAddStaffModal.value = false;
+    newShiftBatchSlots.value = [{ employee_id: "", dispatch_type: "Assigned" }];
+    newShiftBatchConfig.count = 1;
+  };
+
+  const discardAllChanges = () => {
+    Object.keys(draftUpdates).forEach(k => delete draftUpdates[k]);
+    draftAdditions.value = [];
+    draftDeletions.clear();
+  };
+
+  // ⚡ 核心優化：手動調度送出後，僅觸發純粹的綠色「🎉 班表已更新！」提示，去除缺口通知
+  const commitAllChanges = () => {
+    core.isSubmitting.value = true;
+    const updatesPayload = Object.values(draftUpdates);
+    const additionsPayload = draftAdditions.value.map(a => ({
+      date: a.date,
+      shift_id: a.shift_id,
+      employee_id: a.employee_id,
+      dispatch_type: a.dispatch_type
+    }));
+    const deletionsPayload = Array.from(draftDeletions);
+
+    google.script.run
+      .withSuccessHandler((res) => {
+        core.isSubmitting.value = false;
+        if (res && res.success) {
+          // 僅留單一肯定句，不再呈現任何新增缺口之警示
+          core.triggerStickyAlert("🎉 班表已更新！", "success");
+          discardAllChanges();
+          fetchScheduleData(scheduleTargetYearMonth.value, true);
+        } else {
+          core.triggerStickyAlert((res && res.message) ? res.message : "儲存失敗", "error");
+        }
+      })
+      .withFailureHandler((err) => {
+        core.isSubmitting.value = false;
+        core.triggerStickyAlert("儲存失敗: " + err.message, "error");
+      })
+      .apiBatchCommitScheduleModifications(
+        core.token.value,
+        scheduleTargetYearMonth.value,
+        updatesPayload,
+        additionsPayload,
+        deletionsPayload
+      );
+  };
+
+  const fetchScheduleData = (ym, isForceRefresh) => {
+    const targetYm = ym || scheduleTargetYearMonth.value;
+    if (!core.token.value || !targetYm) return;
+
+    discardAllChanges();
+    filterScheduleDate.value = "";
+    if (avail && typeof avail.generateCalendar === 'function') {
+      avail.generateCalendar(targetYm);
+    }
+
+    isRefreshingSchedule.value = true;
+    google.script.run
+      .withSuccessHandler((res) => {
+        isRefreshingSchedule.value = false;
+        if (res && res.success) {
+          scheduleList.value = res.schedules || [];
+          scheduleConflicts.value = res.conflicts || [];
+          allStaffList.value = res.staffList || [];
+          pendingLeaves.value = (res.pendingLeaves || []).map(p => ({ ...p, selectedSubId: "" }));
+          leaveAuditHistory.value = res.leaveAuditHistory || [];
+          monthlyStatsList.value = res.monthlyStats || [];
+
+          if (uniqueScheduleDates.value.length > 0) {
+            newShiftBatchConfig.date = uniqueScheduleDates.value[0];
+          } else {
+            newShiftBatchConfig.date = `${targetYm}-01`;
+          }
+
+          if (isForceRefresh) {
+            // 靜默更新背景資料，不干擾前台的成功提示
+          }
+        }
+      })
+      .withFailureHandler((err) => {
+        isRefreshingSchedule.value = false;
+        core.triggerStickyAlert("讀取班表失敗: " + err.message, "error");
+      })
+      .apiGetScheduleTable(core.token.value, targetYm);
+  };
+
+  const executeArchiveFromSchedule = () => {
+    if (!canRunArchiveForCutoff.value) return;
+    if (!confirm(`確定將 ${archiveCutoffMonth.value} 之前的歷史紀錄移入冷儲存區嗎？`)) return;
+    isArchiving.value = true;
+    google.script.run
+      .withSuccessHandler((res) => {
+        isArchiving.value = false;
+        if (res.success) {
+          core.triggerStickyAlert(res.message, "success");
+          fetchScheduleData(scheduleTargetYearMonth.value, true);
+        } else {
+          core.triggerStickyAlert(res.message, "error");
+        }
+      })
+      .withFailureHandler((err) => {
+        isArchiving.value = false;
+        core.triggerStickyAlert("封存失敗: " + err.message, "error");
+      })
+      .apiArchiveHistoricalData(core.token.value, archiveCutoffMonth.value);
+  };
+
+  const getEligibleSubstitutesForLeave = (leaveReq) => {
+    return allStaffList.value.filter(s => s.employee_id !== leaveReq.employee_id);
+  };
+
+  const approveLeave = (leaveReq) => {
+    core.isSubmitting.value = true;
+    google.script.run
+      .withSuccessHandler((res) => {
+        core.isSubmitting.value = false;
+        if (res.success) {
+          core.triggerStickyAlert(res.message, "success");
+          fetchScheduleData(scheduleTargetYearMonth.value, false);
+        } else {
+          core.triggerStickyAlert(res.message, "error");
+        }
+      })
+      .withFailureHandler((err) => {
+        core.isSubmitting.value = false;
+        core.triggerStickyAlert("審核失敗: " + err.message, "error");
+      })
+      .apiApproveLeaveRequest(core.token.value, leaveReq.request_id, leaveReq.selectedSubId);
+  };
+
+  const rejectLeave = (leaveReq) => {
+    core.isSubmitting.value = true;
+    google.script.run
+      .withSuccessHandler((res) => {
+        core.isSubmitting.value = false;
+        if (res.success) {
+          core.triggerStickyAlert(res.message, "success");
+          fetchScheduleData(scheduleTargetYearMonth.value, false);
+        } else {
+          core.triggerStickyAlert(res.message, "error");
+        }
+      })
+      .withFailureHandler((err) => {
+        core.isSubmitting.value = false;
+        core.triggerStickyAlert("駁回失敗: " + err.message, "error");
+      })
+      .apiRejectLeaveRequest(core.token.value, leaveReq.request_id);
+  };
+
+  return {
+    scheduleViewMode, scheduleList, scheduleConflicts, allStaffList, pendingLeaves,
+    leaveAuditHistory, monthlyStatsList, rawUnlockRegistry, hiddenConflictIds,
+    showConflictBanner, showAddStaffModal, filterScheduleDate, scheduleTargetYearMonth,
+    newShiftBatchConfig, newShiftBatchSlots, onBatchCountChange, isBatchFormValid, validBatchCount,
+    unlockForm, activeUnlockList, executeUnlockMonth, isStaffCore, getScheduleForDateAndShift,
+    isShiftDeficit, displayConflictsList, dismissSingleConflict, canEditScheduleForFilterMonth,
+    uniqueScheduleDates, formattedScheduleDates, hasPendingChanges, totalPendingChangesCount,
+    filteredDisplayScheduleList, isStaffAlreadyInSpecificShift, handleDraftStaffChange,
+    handleDraftTypeChange, handleDraftDeleteShift, addNewStaffToDraft, discardAllChanges,
+    commitAllChanges, fetchScheduleData, loadScheduleData: fetchScheduleData,
+    getEligibleSubstitutesForLeave, approveLeave, rejectLeave,
+    showArchiveTooltip, archiveCandidateMonths, archiveCutoffMonth, canRunArchiveForCutoff,
+    executeArchiveFromSchedule, isRefreshingSchedule, isArchiving
+  };
+}
+</script>

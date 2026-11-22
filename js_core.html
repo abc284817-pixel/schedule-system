@@ -1,0 +1,80 @@
+<script>
+ function useCoreModule() {
+   const token = ref("");
+   const currentUser = ref(null);
+   const activeTab = ref("employee");
+   const isSubmitting = ref(false);
+   const loginError = ref("");
+   const isMobileDrawerOpen = ref(false); // 手機端抽屜控制
+   const loginForm = reactive({
+     employee_id: "",
+     password: "",
+     showPassword: false
+   });
+   const currentTimestamp = ref(new Date());
+   let clockTimer = null;
+
+   const stickyAlert = reactive({
+     visible: false,
+     message: "",
+     type: "success",
+     timer: null
+   });
+
+const triggerStickyAlert = (msg, type = "success") => {
+  stickyAlert.message = msg;
+  stickyAlert.type = type;
+  stickyAlert.visible = true;
+
+  // 清除舊計時器，不再自動關閉通知
+  if (stickyAlert.timer) {
+    clearTimeout(stickyAlert.timer);
+    stickyAlert.timer = null;
+  }
+};
+
+   const closeStickyAlert = () => {
+     stickyAlert.visible = false;
+     if (stickyAlert.timer) clearTimeout(stickyAlert.timer);
+   };
+
+   // 一鍵到頂端
+   const scrollToTop = () => {
+     window.scrollTo({ top: 0, behavior: 'smooth' });
+   };
+
+   // 一鍵到底部
+   const scrollToBottom = () => {
+     window.scrollTo({ top: document.body.scrollHeight || document.documentElement.scrollHeight, behavior: 'smooth' });
+   };
+
+   const systemRealYearMonthText = computed(() => {
+     const t = currentTimestamp.value;
+     const y = t.getFullYear();
+     const m = String(t.getMonth() + 1).padStart(2, '0');
+     const d = String(t.getDate()).padStart(2, '0');
+     const hh = String(t.getHours()).padStart(2, '0');
+     const mm = String(t.getMinutes()).padStart(2, '0');
+     const ss = String(t.getSeconds()).padStart(2, '0');
+     return `${y}-${m}-${d} ${hh}:${mm}:${ss}`;
+   });
+
+   return {
+     token,
+     currentUser,
+     activeTab,
+     isSubmitting,
+     loginError,
+     loginForm,
+     currentTimestamp,
+     clockTimer,
+     stickyAlert,
+     triggerStickyAlert,
+     closeStickyAlert,
+     systemRealYearMonthText,
+     isMobileDrawerOpen,
+     scrollToTop,
+     scrollToBottom
+   };
+ }
+</script>

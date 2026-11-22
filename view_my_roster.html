@@ -1,0 +1,404 @@
+<section v-if="activeTab === 'my_roster'" class="space-y-6">
+  <div class="bg-white p-4 sm:p-5 rounded-2xl shadow-sm border border-slate-200">
+    <!-- 頂部控制列 -->
+    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4 pb-3 border-b border-slate-100">
+      <div>
+        <h2 class="text-base font-bold text-slate-900">我的排班班表</h2>
+        <p class="text-xs text-slate-500 mt-0.5">僅顯示您排定出勤的班次與同班出勤夥伴名單。</p>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+        <!-- 視角切換器 -->
+        <div class="flex bg-slate-100 p-1 rounded-lg border border-slate-200">
+          <button
+            @click="rosterSubView = 'list'"
+            :class="rosterSubView === 'list' ? 'bg-white text-indigo-700 font-bold shadow-2xs' : 'text-slate-600 hover:text-slate-900 font-medium'"
+            class="px-2.5 py-1 text-xs rounded transition cursor-pointer"
+          >
+            📋 班次清單
+          </button>
+          <button
+            @click="rosterSubView = 'calendar'"
+            :class="rosterSubView === 'calendar' ? 'bg-white text-indigo-700 font-bold shadow-2xs' : 'text-slate-600 hover:text-slate-900 font-medium'"
+            class="px-2.5 py-1 text-xs rounded transition cursor-pointer"
+          >
+            📅 月曆方格
+          </button>
+        </div>
+
+        <div class="flex items-center space-x-1">
+          <button
+            @click="shiftWindowOlder"
+            :disabled="!canShiftOlder"
+            class="px-2 py-1 border border-slate-300 rounded text-xs bg-slate-50 hover:bg-slate-100 disabled:opacity-40 cursor-pointer"
+            title="更早 6 個月"
+          >
+            ◀
+          </button>
+
+          <select v-model="rosterYearMonth" @change="onRosterMonthChange" class="px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white font-medium font-mono tabular-nums">
+            <option v-if="!isRosterMonthInWindow" value="" disabled>-- 請選擇檢視月份 --</option>
+            <option v-for="m in windowedMonths" :key="'my-r-' + m.value" :value="m.value">
+              {{ m.label }}
+            </option>
+          </select>
+
+          <button
+            @click="shiftWindowNewer"
+            :disabled="!canShiftNewer"
+            class="px-2 py-1 border border-slate-300 rounded text-xs bg-slate-50 hover:bg-slate-100 disabled:opacity-40 cursor-pointer"
+            title="更新 6 個月"
+          >
+            ▶
+          </button>
+        </div>
+
+        <button
+          @click="onRosterMonthChange"
+          :disabled="isRefreshingRoster"
+          class="text-xs px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg flex items-center space-x-1 transition disabled:opacity-50 cursor-pointer"
+        >
+          <span :class="isRefreshingRoster ? 'animate-spin inline-block' : ''">🔄</span>
+          <span>{{ isRefreshingRoster ? '重新整理中...' : '重新整理' }}</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- 個人當月出勤統計看板 -->
+    <div class="bg-indigo-50/70 border border-indigo-200 p-4 rounded-xl flex items-center justify-between mb-4 shadow-2xs">
+      <div class="text-xs text-indigo-900">
+        <span class="font-bold font-mono tabular-nums">{{ rosterYearMonth }}</span> 個人工時統計：
+        本月出勤 <span class="font-mono font-extrabold text-indigo-700 text-sm tabular-nums">{{ myMonthlyTotalDays }}</span> 天
+        (共 {{ myRosterSchedule.length }} 個班次)
+      </div>
+      <div class="text-right">
+        <span class="text-xs text-slate-500 mr-2">累計出勤工時</span>
+        <span class="text-base font-mono font-extrabold text-indigo-700 tabular-nums">{{ myMonthlyTotalHours }} hr</span>
+      </div>
+    </div>
+
+    <!-- 視角 A：班次清單卡片 -->
+    <div v-if="rosterSubView === 'list'">
+      <div v-if="myRosterSchedule.length > 0" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div v-for="shift in myRosterSchedule" :key="shift.date + shift.shift_id" class="p-4 rounded-xl border border-slate-200 bg-slate-50/60 flex flex-col justify-between">
+          <div>
+            <div class="flex justify-between items-center pb-2 border-b border-slate-200">
+              <div class="flex items-baseline space-x-2">
+                <span class="font-mono tabular-nums text-sm font-bold text-slate-800">{{ shift.date }}</span>
+                <span
+                  :class="shift.shift_id === 'SHIFT_LUNCH' ? 'text-blue-700 bg-blue-100/70' : 'text-emerald-700 bg-emerald-100/70'"
+                  class="text-xs px-2 py-0.5 rounded font-semibold"
+                >
+                  {{ shift.shift_name }}
+                </span>
+              </div>
+            </div>
+
+            <div class="mt-3">
+              <span class="text-xs font-bold text-slate-600">本班搭班同仁：</span>
+              <div class="flex flex-wrap gap-1.5 mt-1.5">
+                <!-- ⚡ 修正處 1：搭班同仁一律純白底灰框，拔除星號與特殊底色 -->
+                <span
+                  v-for="p in shift.partners"
+                  :key="p.employee_id"
+                  class="px-2 py-1 text-xs rounded border font-medium flex items-center space-x-1 shadow-2xs bg-white text-slate-700 border-slate-200"
+                >
+                  <span>{{ p.name }}</span>
+                </span>
+                <span v-if="!shift.partners || shift.partners.length === 0" class="text-xs text-slate-400">
+                  (無其他同仁搭班)
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-4 pt-2 border-t border-slate-200/60 text-right">
+            <button
+              @click="activeTab = 'leave'"
+              class="text-[11px] text-amber-600 hover:text-amber-800 font-semibold cursor-pointer"
+            >
+              若當日無法出勤，前往申請請假/代班 ➔
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div v-else class="p-12 text-center text-slate-400 bg-slate-50/50 rounded-xl border border-dashed border-slate-200">
+        該月份您目前尚無任何出勤排班。
+      </div>
+    </div>
+
+    <!-- 視角 B：月曆方格檢視 (雙軌 RWD：電腦端 7 欄方格 / 手機端縱向流式卡片) -->
+    <div v-if="rosterSubView === 'calendar'" class="space-y-3">
+
+      <!-- ========================================================================= -->
+      <!-- 1. 電腦端專用：傳統 7 欄日曆 (僅在螢幕寬度 >= 768px 顯示，原汁原味 100% 保留) -->
+      <!-- ========================================================================= -->
+      <div class="hidden md:block space-y-2">
+        <div class="grid grid-cols-7 gap-2 text-center text-xs font-bold text-slate-500 mb-1">
+          <div class="py-1 text-rose-500">週日</div>
+          <div class="py-1">週一</div>
+          <div class="py-1">週二</div>
+          <div class="py-1">週三</div>
+          <div class="py-1">週四</div>
+          <div class="py-1">週五</div>
+          <div class="py-1 text-indigo-500">週六</div>
+        </div>
+
+        <div class="grid grid-cols-7 gap-2">
+          <!-- 月前空白格 -->
+          <div v-for="b in myRosterBlankDays" :key="'blank-r-' + b" class="min-h-[295px] bg-slate-50/40 rounded-xl border border-dashed border-slate-200"></div>
+
+          <!-- 日曆方格 (對標 min-h-[295px]) -->
+          <div
+            v-for="day in myRosterCalendarDays"
+            :key="'roster-cal-' + day.dateStr"
+            class="min-h-[295px] p-2 rounded-xl border border-slate-200 bg-white flex flex-col justify-start"
+          >
+            <!-- 日期標題列 -->
+            <div class="h-6 text-xs font-bold text-slate-700 mb-1 border-b border-slate-100 pb-1 flex justify-between items-center shrink-0">
+              <div class="flex items-baseline space-x-1">
+                <span class="[font-feature-settings:'tnum']">{{ day.dayNumber }}日</span>
+                <span
+                  v-if="getHolidayInfo(day.dateStr)"
+                  :class="getHolidayInfo(day.dateStr).isDoublePay ? 'text-rose-600 font-bold bg-rose-50 px-1 rounded border border-rose-200' : 'text-indigo-600 font-medium'"
+                  class="text-[10px]"
+                >
+                  {{ getHolidayInfo(day.dateStr).name }}
+                </span>
+              </div>
+              <span class="text-[10px] text-slate-400">({{ day.weekday }})</span>
+            </div>
+
+            <!-- 班次容器：固定間距 space-y-2.5 -->
+            <div class="flex flex-col justify-start space-y-2.5 py-0.5 w-full">
+              <!-- 午班區塊 (min-h-[120px]) -->
+              <div
+                :class="day.lunchShift ? 'bg-blue-50/70 border-blue-100' : 'bg-slate-50/40 border-slate-100 border-dashed'"
+                class="min-h-[120px] p-2 rounded-lg border flex flex-col justify-start transition-colors"
+              >
+                <div class="h-5 flex items-center justify-between w-full leading-none pb-1.5 border-b border-black/5 shrink-0">
+                  <span
+                    :class="day.lunchShift ? 'text-blue-800 font-bold' : 'text-slate-400 font-medium'"
+                    class="text-[11px] tracking-tight"
+                  >
+                    午班
+                  </span>
+                  <span
+                    v-if="day.lunchShift"
+                    class="shrink-0 text-[9px] px-1.5 py-0.5 rounded-full font-bold bg-blue-100/90 text-blue-700 [font-feature-settings:'tnum']"
+                  >
+                    已排定
+                  </span>
+                  <span v-else class="text-[10px] text-slate-300">未排班</span>
+                </div>
+
+                <!-- ⚡ 修正處 2：午班搭班同仁拔除星號，純白底灰框 -->
+                <div v-if="day.lunchShift" class="grid grid-cols-2 gap-1.5 mt-1.5 w-full">
+                  <div
+                    v-for="p in day.lunchShift.partners"
+                    :key="'lunch-p-' + p.employee_id"
+                    class="bg-white text-slate-800 border-slate-200 text-[10px] px-1 py-0.5 min-h-[22px] rounded border shadow-2xs font-medium flex items-center justify-center overflow-hidden"
+                  >
+                    <span class="truncate leading-tight">{{ p.name }}</span>
+                  </div>
+                  <div v-if="!day.lunchShift.partners || day.lunchShift.partners.length === 0" class="col-span-2 text-center text-[10px] text-slate-400 py-3">
+                    (無其他同仁)
+                  </div>
+                </div>
+                <div v-else class="text-center text-[10px] text-slate-300 py-6">
+                  -
+                </div>
+              </div>
+
+              <!-- 晚班區塊 (min-h-[120px]) -->
+              <div
+                :class="day.dinnerShift ? 'bg-emerald-50/70 border-emerald-100' : 'bg-slate-50/40 border-slate-100 border-dashed'"
+                class="min-h-[120px] p-2 rounded-lg border flex flex-col justify-start transition-colors"
+              >
+                <div class="h-5 flex items-center justify-between w-full leading-none pb-1.5 border-b border-black/5 shrink-0">
+                  <span
+                    :class="day.dinnerShift ? 'text-emerald-800 font-bold' : 'text-slate-400 font-medium'"
+                    class="text-[11px] tracking-tight"
+                  >
+                    晚班
+                  </span>
+                  <span
+                    v-if="day.dinnerShift"
+                    class="shrink-0 text-[9px] px-1.5 py-0.5 rounded-full font-bold bg-emerald-100/90 text-emerald-700 [font-feature-settings:'tnum']"
+                  >
+                    已排定
+                  </span>
+                  <span v-else class="text-[10px] text-slate-300">未排班</span>
+                </div>
+
+                <!-- ⚡ 修正處 3：晚班搭班同仁拔除星號，純白底灰框 -->
+                <div v-if="day.dinnerShift" class="grid grid-cols-2 gap-1.5 mt-1.5 w-full">
+                  <div
+                    v-for="p in day.dinnerShift.partners"
+                    :key="'dinner-p-' + p.employee_id"
+                    class="bg-white text-slate-800 border-slate-200 text-[10px] px-1 py-0.5 min-h-[22px] rounded border shadow-2xs font-medium flex items-center justify-center overflow-hidden"
+                  >
+                    <span class="truncate leading-tight">{{ p.name }}</span>
+                  </div>
+                  <div v-if="!day.dinnerShift.partners || day.dinnerShift.partners.length === 0" class="col-span-2 text-center text-[10px] text-slate-400 py-3">
+                    (無其他同仁)
+                  </div>
+                </div>
+                <div v-else class="text-center text-[10px] text-slate-300 py-6">
+                  -
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========================================================================= -->
+      <!-- 2. 手機端專用：縱向寬敞卡片流 (僅在螢幕寬度 < 768px 顯示，單手滑動極致體驗) -->
+      <!-- ========================================================================= -->
+      <div class="block md:hidden space-y-3">
+        <div class="text-[11px] text-slate-500 bg-slate-50 p-2.5 rounded-xl border border-slate-200 flex items-center justify-between">
+          <span>💡 個人出勤班次與同班夥伴名單</span>
+        </div>
+
+        <div
+          v-for="day in myRosterCalendarDays"
+          :key="'roster-m-' + day.dateStr"
+          class="bg-white p-3 rounded-2xl border transition-all space-y-2.5 shadow-2xs"
+          :class="[
+            (day.lunchShift || day.dinnerShift)
+              ? 'border-indigo-200 bg-indigo-50/10'
+              : 'border-slate-200 bg-white',
+            (day.weekday === '日' || day.weekday === '六') ? 'ring-1 ring-slate-100' : ''
+          ]"
+        >
+          <!-- 頂部：日期資訊列 -->
+          <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+            <div class="flex items-center space-x-2.5">
+              <div
+                class="w-10 h-10 rounded-xl flex flex-col items-center justify-center font-bold border shrink-0"
+                :class="day.weekday === '日' ? 'bg-rose-50 border-rose-200 text-rose-600' : (day.weekday === '六' ? 'bg-indigo-50 border-indigo-200 text-indigo-600' : 'bg-slate-50 border-slate-200 text-slate-800')"
+              >
+                <span class="text-base font-extrabold leading-none [font-feature-settings:'tnum']">{{ day.dayNumber }}</span>
+                <span class="text-[10px] leading-none mt-0.5">週{{ day.weekday }}</span>
+              </div>
+
+              <div>
+                <span class="text-xs font-bold text-slate-800 font-mono">{{ day.dateStr }}</span>
+                <div v-if="getHolidayInfo(day.dateStr)">
+                  <span
+                    :class="getHolidayInfo(day.dateStr).isDoublePay ? 'text-rose-600 font-bold bg-rose-50 px-1 py-0.2 rounded border border-rose-200' : 'text-indigo-700 font-semibold bg-indigo-50 px-1 py-0.2 rounded'"
+                    class="text-[10px]"
+                  >
+                    {{ getHolidayInfo(day.dateStr).name }}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 當日出勤狀態摘要 -->
+            <div>
+              <span
+                v-if="day.lunchShift && day.dinnerShift"
+                class="px-2.5 py-1 bg-indigo-600 text-white font-extrabold text-[11px] rounded-lg shadow-2xs"
+              >
+                全日出勤 (雙班)
+              </span>
+              <span
+                v-else-if="day.lunchShift"
+                class="px-2.5 py-1 bg-blue-600 text-white font-extrabold text-[11px] rounded-lg shadow-2xs"
+              >
+                午班出勤
+              </span>
+              <span
+                v-else-if="day.dinnerShift"
+                class="px-2.5 py-1 bg-emerald-600 text-white font-extrabold text-[11px] rounded-lg shadow-2xs"
+              >
+                晚班出勤
+              </span>
+              <span
+                v-else
+                class="px-2.5 py-1 bg-slate-100 text-slate-400 font-medium text-[11px] rounded-lg"
+              >
+                本日休假
+              </span>
+            </div>
+          </div>
+
+          <!-- 出勤班次夥伴卡片 -->
+          <div v-if="day.lunchShift || day.dinnerShift" class="space-y-2">
+            <!-- 午班出勤詳細 -->
+            <div
+              v-if="day.lunchShift"
+              class="p-2.5 rounded-xl border border-blue-200 bg-blue-50/60 text-xs"
+            >
+              <div class="flex items-center justify-between mb-1.5 pb-1 border-b border-blue-100">
+                <span class="font-extrabold text-blue-900 flex items-center space-x-1">
+                  <span>☀️ 午班 (10:30 - 14:30)</span>
+                </span>
+                <span class="text-[10px] text-blue-700 font-bold bg-blue-100 px-2 py-0.5 rounded-full">
+                  搭班同仁 {{ (day.lunchShift.partners || []).length }} 位
+                </span>
+              </div>
+
+              <!-- ⚡ 修正處 4：手機端午班夥伴拔除星號，純白底灰框 -->
+              <div class="flex flex-wrap gap-1.5">
+                <span
+                  v-for="p in day.lunchShift.partners"
+                  :key="'m-roster-l-' + p.employee_id"
+                  class="px-2 py-1 rounded-lg text-xs border font-medium flex items-center bg-white text-slate-800 border-slate-200 shadow-2xs"
+                >
+                  <span>{{ p.name }}</span>
+                </span>
+                <span v-if="!day.lunchShift.partners || day.lunchShift.partners.length === 0" class="text-xs text-slate-400 py-0.5">
+                  (無其他同仁搭班)
+                </span>
+              </div>
+            </div>
+
+            <!-- 晚班出勤詳細 -->
+            <div
+              v-if="day.dinnerShift"
+              class="p-2.5 rounded-xl border border-emerald-200 bg-emerald-50/60 text-xs"
+            >
+              <div class="flex items-center justify-between mb-1.5 pb-1 border-b border-emerald-100">
+                <span class="font-extrabold text-emerald-900 flex items-center space-x-1">
+                  <span>🌙 晚班 (17:30 - 21:30)</span>
+                </span>
+                <span class="text-[10px] text-emerald-700 font-bold bg-emerald-100 px-2 py-0.5 rounded-full">
+                  搭班同仁 {{ (day.dinnerShift.partners || []).length }} 位
+                </span>
+              </div>
+
+              <!-- ⚡ 修正處 5：手機端晚班夥伴拔除星號，純白底灰框 -->
+              <div class="flex flex-wrap gap-1.5">
+                <span
+                  v-for="p in day.dinnerShift.partners"
+                  :key="'m-roster-d-' + p.employee_id"
+                  class="px-2 py-1 rounded-lg text-xs border font-medium flex items-center bg-white text-slate-800 border-slate-200 shadow-2xs"
+                >
+                  <span>{{ p.name }}</span>
+                </span>
+                <span v-if="!day.dinnerShift.partners || day.dinnerShift.partners.length === 0" class="text-xs text-slate-400 py-0.5">
+                  (無其他同仁搭班)
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 若當日有排班，底部提供請假捷徑 -->
+          <div v-if="day.lunchShift || day.dinnerShift" class="pt-1.5 border-t border-slate-100 text-right">
+            <button
+              @click="activeTab = 'leave'"
+              class="text-[11px] text-amber-600 hover:text-amber-800 font-semibold cursor-pointer"
+            >
+              此日欲請假/換班 ➔
+            </button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>

@@ -1,0 +1,76 @@
+<script>
+function useMyRosterModule(core) {
+  const myRosterSchedule = ref([]);
+  const rosterSubView = ref("list");
+
+  const myMonthlyTotalDays = computed(() => {
+    const dateSet = new Set(myRosterSchedule.value.map(s => CalendarUtils.normalizeDateStr(s.date)));
+    return dateSet.size;
+  });
+
+  const myMonthlyTotalHours = computed(() => {
+    return (myRosterSchedule.value.length * 4.0).toFixed(1);
+  });
+
+  const myRosterBlankDays = ref(0);
+  const myRosterCalendarDays = ref([]);
+
+  // 💥 拔除重複的日曆幾何生成演算法，直接以 CalendarUtils 取得純結構後做 Mapping
+  const generateRosterCalendar = (yearMonthStr) => {
+    const ym = CalendarUtils.normalizeYearMonth(yearMonthStr);
+    if (!ym) return;
+
+    const grid = CalendarUtils.buildMonthCalendarGrid(ym);
+    myRosterBlankDays.value = grid.blankDays;
+
+    const shiftMapByDate = {};
+    const shiftPriority = { 'SHIFT_LUNCH': 1, 'SHIFT_DINNER': 2 };
+    const myEmpId = (core.currentUser.value && core.currentUser.value.employee_id === 'MGR001') ? 'EMP001' : (core.currentUser.value?.employee_id || '');
+
+    myRosterSchedule.value.forEach(shift => {
+      const cleanDate = CalendarUtils.normalizeDateStr(shift.date);
+      if (!shiftMapByDate[cleanDate]) shiftMapByDate[cleanDate] = {};
+      
+      const cleanPartners = (shift.partners || [])
+        .filter(p => p.employee_id !== myEmpId && p.dispatch_type !== 'Standby')
+        .slice(0, 4);
+
+      shiftMapByDate[cleanDate][shift.shift_id] = {
+        ...shift,
+        date: cleanDate,
+        partners: cleanPartners
+      };
+    });
+
+    myRosterCalendarDays.value = grid.days.map(day => {
+      const shiftsOnDay = shiftMapByDate[day.dateStr] || {};
+      return {
+        dateStr: day.dateStr,
+        dayNumber: day.dayNumber,
+        weekday: day.weekdayFull,
+        lunchShift: shiftsOnDay['SHIFT_LUNCH'] || null,
+        dinnerShift: shiftsOnDay['SHIFT_DINNER'] || null
+      };
+    });
+  };
+
+  watch(myRosterSchedule, () => {
+    if (myRosterSchedule.value.length > 0) {
+      const ym = CalendarUtils.normalizeYearMonth(myRosterSchedule.value[0].date);
+      generateRosterCalendar(ym);
+    } else {
+      myRosterCalendarDays.value = [];
+    }
+  }, { deep: true });
+
+  return {
+    myRosterSchedule,
+    rosterSubView,
+    myMonthlyTotalDays,
+    myMonthlyTotalHours,
+    myRosterBlankDays,
+    myRosterCalendarDays,
+    generateRosterCalendar
+  };
+}
+</script>

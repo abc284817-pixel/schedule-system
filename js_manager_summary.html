@@ -1,0 +1,57 @@
+<script>
+function useManagerSummaryModule(core, avail) {
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+
+  const managerYearMonth = ref(avail.defaultNextMonth.value);
+  const managerSummaryList = ref([]);
+  const isAutoScheduling = ref(false);
+  const showScheduleTooltip = ref(false);
+  
+  // ⚡ 1. 新增：控制按鈕轉圈圈的響應式狀態
+  const isRefreshingManager = ref(false);
+
+  const canRunAutoScheduleForManagerMonth = computed(() => {
+    const [y, m] = managerYearMonth.value.split("-").map(Number);
+    return (y > currentYear) || (y === currentYear && m > currentMonth);
+  });
+
+  // ⚡ 2. 升級資料抓取函式，加入 isRefreshingManager 開關
+  const loadManagerData = () => {
+    isRefreshingManager.value = true; // 啟動轉圈圈
+    
+    google.script.run
+      .withSuccessHandler((res) => {
+        isRefreshingManager.value = false; // 關閉轉圈圈
+        if (res.success) managerSummaryList.value = res.summary;
+      })
+      .withFailureHandler((err) => {
+        isRefreshingManager.value = false; // 失敗時也要解開按鈕鎖定
+        if (core.triggerStickyAlert) {
+          core.triggerStickyAlert("總覽讀取失敗: " + err.message, "error");
+        }
+      })
+      .apiGetManagerSummary(core.token.value, managerYearMonth.value);
+  };
+
+  // 保留原變數名稱相容性，以免你在 index 的其他地方有呼叫到
+  const fetchManagerSummary = loadManagerData;
+
+  const formatVolume = (val) => val === 'More' ? '想多排' : (val === 'Less' ? '想少排' : '正常');
+
+  return {
+    managerYearMonth, 
+    managerSummaryList, 
+    isAutoScheduling, 
+    showScheduleTooltip,
+    canRunAutoScheduleForManagerMonth, 
+    fetchManagerSummary, 
+    formatVolume,
+    
+    // ⚡ 3. 將狀態與函式匯出給 Vue 樣板使用
+    isRefreshingManager,
+    loadManagerData
+  };
+}
+</script>

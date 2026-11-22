@@ -1,0 +1,174 @@
+<script>
+  function useLeaveModule(core, avail) {
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1;
+
+    // 需求 3：選項文字內部補齊固定兩位數字，保證選單浮層中等寬切齊
+    const leaveSelectableMonths = computed(() => {
+      const list = [];
+      for (let i = 0; i < 4; i++) {
+        const d = new Date(currentYear, currentMonth - 1 + i, 1);
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        list.push({
+          value: `${y}-${m}`,
+          label: `${y} 年 ${m} 月`
+        });
+      }
+      return list;
+    });
+
+    const leaveFilterMonth = ref("");
+    const myAssignedShifts = ref([]);
+    const myLeaveList = ref([]);
+    const selectedAssignedShiftIndex = ref(-1);
+
+    const leaveForm = reactive({
+      leave_type: "",
+      reason_detail: "",
+      has_substitute: true,
+      substitute_id: ""
+    });
+
+    // 需求 3：選項內部文字正規化 (YYYY-MM-DD 固定寬度靠齊)
+    const formattedAssignedShifts = computed(() => {
+      return myAssignedShifts.value.map(shift => {
+        const soleCoreText = shift.is_sole_core ? ' [★唯一核心]' : '';
+        return {
+          ...shift,
+          displayLabel: `${shift.date} ｜ ${shift.shift_name}${soleCoreText}`
+        };
+      });
+    });
+
+    const isCurrentShiftSoleCore = computed(() => {
+      if (selectedAssignedShiftIndex.value === -1 || !myAssignedShifts.value[selectedAssignedShiftIndex.value]) return false;
+      return Boolean(myAssignedShifts.value[selectedAssignedShiftIndex.value].is_sole_core);
+    });
+
+    const eligibleSubstitutes = computed(() => {
+      if (selectedAssignedShiftIndex.value === -1 || !myAssignedShifts.value[selectedAssignedShiftIndex.value]) {
+        return avail.colleagueList.value;
+      }
+      const targetShift = myAssignedShifts.value[selectedAssignedShiftIndex.value];
+      const assignedInShiftSet = new Set(targetShift.assigned_staff_in_shift || []);
+
+      return avail.colleagueList.value.filter(colleague => {
+        if (assignedInShiftSet.has(colleague.employee_id)) return false;
+
+        if (targetShift.is_sole_core) {
+          return Boolean(colleague.is_core);
+        }
+
+        return true;
+      });
+    });
+
+    const onSelectedShiftChange = () => {
+      leaveForm.substitute_id = "";
+    };
+
+    const fetchMyShiftsForMonth = () => {
+      selectedAssignedShiftIndex.value = -1;
+      leaveForm.substitute_id = "";
+      if (!leaveFilterMonth.value) {
+        myAssignedShifts.value = [];
+        return;
+      }
+      google.script.run
+        .withSuccessHandler((res) => {
+          if (res.success) {
+            myAssignedShifts.value = res.shifts;
+          }
+        })
+        .apiGetMyShiftsForMonth(core.token.value, leaveFilterMonth.value);
+    };
+
+    const fetchMyLeaves = () => {
+      google.script.run
+        .withSuccessHandler((res) => {
+          if (res.success) myLeaveList.value = res.requests;
+        })
+        .apiGetMyLeaveRequests(core.token.value);
+    };
+
+    const submitLeave = () => {
+      if (!leaveFilterMonth.value) {
+        core.triggerStickyAlert("請先選擇欲請假之月份", "error");
+        return;
+      }
+      if (selectedAssignedShiftIndex.value === -1 || !myAssignedShifts.value[selectedAssignedShiftIndex.value]) {
+        core.triggerStickyAlert("請選擇欲請假之出勤班次", "error");
+        return;
+      }
+      if (!leaveForm.leave_type) {
+        core.triggerStickyAlert("請選擇請假假別", "error");
+        return;
+      }
+      const targetShift = myAssignedShifts.value[selectedAssignedShiftIndex.value];
+      if (leaveForm.has_substitute && !leaveForm.substitute_id) {
+        core.triggerStickyAlert("請選擇代班同仁", "error");
+        return;
+      }
+
+      core.isSubmitting.value = true;
+      
+      const submitTimeout = setTimeout(() => {
+        if (core.isSubmitting.value) {
+          core.isSubmitting.value = false;
+          core.triggerStickyAlert("伺服器回應逾時，請重新整理頁面後確認請假紀錄！", "error");
+        }
+      }, 12000);
+
+      google.script.run
+        .withSuccessHandler((res) => {
+          clearTimeout(submitTimeout);
+          core.isSubmitting.value = false;
+          if (res && res.success) {
+            core.triggerStickyAlert(res.message, "success");
+            selectedAssignedShiftIndex.value = -1;
+            leaveForm.leave_type = "";
+            leaveForm.reason_detail = "";
+            leaveForm.substitute_id = "";
+            fetchMyLeaves();
+            fetchMyShiftsForMonth();
+          } else {
+            if (res && res.isScheduleMutated) {
+              fetchMyShiftsForMonth();
+            }
+            core.triggerStickyAlert((res && res.message) ? res.message : "申請失敗", "error");
+          }
+        })
+        .withFailureHandler((err) => {
+          clearTimeout(submitTimeout);
+          core.isSubmitting.value = false;
+          core.triggerStickyAlert("送出失敗: " + err.message, "error");
+        })
+        .apiSubmitLeaveRequest(core.token.value, {
+          date: targetShift.date,
+          shift_id: targetShift.shift_id,
+          leave_type: leaveForm.leave_type,
+          reason_detail: leaveForm.reason_detail,
+          has_substitute: leaveForm.has_substitute,
+          substitute_id: leaveForm.substitute_id
+        });
+    };
+
+    return {
+      leaveFilterMonth,
+      leaveSelectableMonths,
+      myAssignedShifts,
+      formattedAssignedShifts,
+      myLeaveList,
+      selectedAssignedShiftIndex,
+      leaveForm,
+      isCurrentShiftSoleCore,
+      eligibleSubstitutes,
+      onSelectedShiftChange,
+      fetchMyShiftsForMonth,
+      fetchMyLeaves,
+      submitLeave
+    };
+  }
+</script>

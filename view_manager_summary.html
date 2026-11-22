@@ -1,0 +1,262 @@
+<section v-if="activeTab === 'manager' && currentUser.role === 'Admin'" class="space-y-6">
+  <div class="bg-white p-4 sm:p-5 rounded-2xl shadow-sm border border-slate-200">
+    
+    <!-- 頂部控制列 (響應式折行排版) -->
+    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4 pb-3 border-b border-slate-100">
+      <div class="flex flex-wrap items-center gap-2.5">
+        <h2 class="text-base font-bold text-slate-900">全體員工填報總覽</h2>
+        
+        <div 
+          class="relative inline-block"
+          @mouseenter="showScheduleTooltip = true"
+          @mouseleave="showScheduleTooltip = false"
+        >
+          <button
+            @click="handleRunAutoSchedule"
+            :disabled="isSubmitting || isAutoScheduling || !canRunAutoScheduleForManagerMonth"
+            :class="[
+              isAutoScheduling ? 'bg-slate-900 text-indigo-200 opacity-90 cursor-wait ring-2 ring-indigo-400 animate-pulse' :
+              (canRunAutoScheduleForManagerMonth 
+                ? 'bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 text-white cursor-pointer shadow-sm' 
+                : 'bg-slate-200 text-slate-400 cursor-not-allowed border border-slate-300')
+            ]"
+            class="px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center space-x-1.5 select-none"
+          >
+            <span v-if="isAutoScheduling">⏳ 智慧排班運算中...</span>
+            <span v-else>🤖 一鍵智慧排班 (<span class="font-mono tabular-nums">{{ managerYearMonth }}</span>)</span>
+          </button>
+          
+          <div 
+            v-if="showScheduleTooltip && !canRunAutoScheduleForManagerMonth"
+            class="absolute left-0 top-full mt-2 z-50 w-72 p-2.5 bg-slate-900 text-white text-xs rounded-lg shadow-2xl border border-slate-700 pointer-events-none"
+          >
+            ⚠️ <strong>排班限制說明：</strong><br>
+            禁止排定當月及過去歷史班表！系統僅允許自動排定<strong>下個月（含）之後</strong>的班表。
+          </div>
+        </div>
+      </div>
+      
+      <!-- 月份切換與重新整理按鈕 -->
+      <div class="flex flex-wrap items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
+        <div class="flex items-center space-x-1">
+          <button 
+            @click="shiftWindowOlder" 
+            :disabled="!canShiftOlder" 
+            class="px-2 py-1 border border-slate-300 rounded text-xs bg-slate-50 hover:bg-slate-100 disabled:opacity-40 cursor-pointer"
+            title="更早 6 個月"
+          >
+            ◀
+          </button>
+          
+          <select v-model="managerYearMonth" @change="loadManagerData" class="px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs bg-white font-medium font-mono tabular-nums">
+            <option v-if="!isManagerMonthInWindow" value="" disabled>-- 請選擇檢視月份 --</option>
+            <option v-for="m in windowedMonths" :key="'mgr-' + m.value" :value="m.value">
+              {{ m.label }}
+            </option>
+          </select>
+
+          <button 
+            @click="shiftWindowNewer" 
+            :disabled="!canShiftNewer" 
+            class="px-2 py-1 border border-slate-300 rounded text-xs bg-slate-50 hover:bg-slate-100 disabled:opacity-40 cursor-pointer"
+            title="更新 6 個月"
+          >
+            ▶
+          </button>
+        </div>
+
+        <button 
+          @click="loadManagerData" 
+          :disabled="isRefreshingManager"
+          class="text-xs px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg flex items-center space-x-1 transition font-bold disabled:opacity-50 cursor-pointer shadow-2xs"
+        >
+          <span :class="isRefreshingManager ? 'animate-spin inline-block' : ''">🔄</span>
+          <span>{{ isRefreshingManager ? '重新整理中...' : '重新整理' }}</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- ========================================================================= -->
+    <!-- 1. 電腦端專用：傳統寬表格 (僅在螢幕寬度 >= 768px 顯示，100% 保持原樣) -->
+    <!-- ========================================================================= -->
+    <div class="hidden md:block overflow-x-auto">
+      <table class="w-full text-left text-xs border-collapse">
+        <thead>
+          <tr class="bg-slate-100 text-slate-700">
+            <th class="p-2.5 border">員工姓名</th>
+            <th class="p-2.5 border">工時傾向</th>
+            <th class="p-2.5 border">單日偏好</th>
+            <th class="p-2.5 border">偏好搭班</th>
+            <th class="p-2.5 border">迴避搭班</th>
+            <th class="p-2.5 border">總申報班次</th>
+            <th class="p-2.5 border">填報狀態</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="staff in managerSummaryList" :key="staff.employee_id" class="border-b hover:bg-slate-50">
+            <td class="p-2.5 border text-xs font-semibold text-slate-800">
+              {{ staff.name }}
+              <span v-if="staff.is_core" class="text-amber-600 ml-1 font-bold">[核心]</span>
+            </td>
+            
+            <td class="p-2.5 border text-xs font-semibold text-slate-800">
+              {{ staff.pref_work_volume === 'More' ? '高工時需求' : (staff.pref_work_volume === 'Less' ? '彈性減班' : '標準工時') }}
+            </td>
+            
+            <td class="p-2.5 border text-xs font-semibold text-slate-800">
+              {{ staff.day_preference === 'Both_Preferred' ? '全日班' : (staff.day_preference === 'Single_Preferred' ? '單一班次' : '彈性安排') }}
+            </td>
+            
+            <td class="p-2.5 border text-xs font-semibold text-slate-800">
+              {{ staff.pref_partner_name || '無' }}
+            </td>
+            
+            <td class="p-2.5 border text-xs font-semibold text-slate-800">
+              {{ staff.dislike_partner_name || '無' }}
+            </td>
+            
+            <td class="p-2.5 border text-xs font-semibold text-slate-800 font-mono tabular-nums">
+              {{ staff.shift_count }} 班次
+            </td>
+            
+            <td class="p-2.5 border text-xs font-semibold">
+              <span :class="staff.submitted ? 'text-emerald-700 bg-emerald-50 border border-emerald-200' : 'text-slate-500 bg-slate-100 border border-slate-200'" class="px-2 py-0.5 rounded font-bold">
+                {{ staff.submitted ? '已填報' : '未提交' }}
+              </span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- ========================================================================= -->
+    <!-- 2. 手機端專用：方案 B 員工卡片流 (僅在螢幕寬度 < 768px 顯示，單手極致排查) -->
+    <!-- ========================================================================= -->
+    <div class="block md:hidden space-y-3">
+      
+      <!-- 手機端頂部填報統計看板 -->
+      <div class="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between text-xs">
+        <span class="text-slate-600 font-medium">
+          全店同仁共 <strong class="text-slate-900 font-bold font-mono">{{ managerSummaryList.length }}</strong> 位
+        </span>
+        <div class="flex items-center space-x-1.5 font-bold">
+          <span class="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg">
+            已填 {{ managerSummaryList.filter(s => s.submitted).length }}
+          </span>
+          <span class="px-2 py-0.5 bg-rose-50 text-rose-700 border border-rose-200 rounded-lg">
+            未交 {{ managerSummaryList.filter(s => !s.submitted).length }}
+          </span>
+        </div>
+      </div>
+
+      <!-- 員工縱向卡片清單 (方案 B) -->
+      <div 
+        v-for="staff in managerSummaryList" 
+        :key="'m-mgr-' + staff.employee_id"
+        class="p-3.5 rounded-2xl border transition-all space-y-2.5 shadow-2xs"
+        :class="staff.submitted ? 'bg-white border-slate-200' : 'bg-rose-50/30 border-dashed border-rose-300'"
+      >
+        <!-- 頂部姓名與填報狀態標籤 -->
+        <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+          <div class="flex items-center space-x-2">
+            <span class="text-sm font-extrabold text-slate-800">{{ staff.name }}</span>
+            <span 
+              v-if="staff.is_core" 
+              class="text-[10px] px-1.5 py-0.2 bg-amber-100 text-amber-900 border border-amber-300 font-bold rounded shadow-2xs"
+            >
+              核心
+            </span>
+            <span v-else class="text-[10px] px-1.5 py-0.2 bg-slate-100 text-slate-500 font-medium rounded">
+              一般
+            </span>
+          </div>
+
+          <div>
+            <span 
+              :class="staff.submitted ? 'text-emerald-700 bg-emerald-50 border-emerald-200' : 'text-rose-700 bg-rose-50 border-rose-200'"
+              class="text-xs px-2.5 py-0.5 rounded-md font-bold border"
+            >
+              {{ staff.submitted ? '✓ 已填報' : '⚠️ 未提交' }}
+            </span>
+          </div>
+        </div>
+
+        <!-- 偏好標籤組 -->
+        <div class="flex flex-wrap gap-1.5 text-[11px]">
+          <!-- 工時需求 -->
+          <span class="px-2 py-0.5 rounded-md border font-medium"
+                :class="staff.pref_work_volume === 'More' ? 'bg-indigo-50 text-indigo-700 border-indigo-100 font-bold' : 'bg-slate-100 text-slate-700 border-slate-200'">
+            {{ staff.pref_work_volume === 'More' ? '高工時需求' : (staff.pref_work_volume === 'Less' ? '彈性減班' : '標準工時') }}
+          </span>
+
+          <!-- 單日偏好 -->
+          <span class="px-2 py-0.5 bg-slate-100 text-slate-700 rounded-md border border-slate-200 font-medium">
+            {{ staff.day_preference === 'Both_Preferred' ? '全日班優先' : (staff.day_preference === 'Single_Preferred' ? '單一班次' : '彈性安排') }}
+          </span>
+
+          <!-- 偏好搭檔 -->
+          <span v-if="staff.pref_partner_name" class="px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded-md border border-emerald-100 font-medium">
+            偏好: {{ staff.pref_partner_name }}
+          </span>
+
+          <!-- 迴避搭檔 -->
+          <span v-if="staff.dislike_partner_name" class="px-2 py-0.5 bg-rose-50 text-rose-700 rounded-md border border-rose-100 font-medium">
+            避開: {{ staff.dislike_partner_name }}
+          </span>
+        </div>
+
+        <!-- 底部意願申報總數 -->
+        <div class="flex items-center justify-between pt-1 border-t border-slate-100 text-xs">
+          <span class="text-slate-500 font-medium">總申報出勤意向</span>
+          <span class="font-extrabold font-mono tabular-nums text-indigo-700 text-sm">
+            {{ staff.shift_count }} 班次
+          </span>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+
+<div
+  v-if="autoScheduleConfirmation.visible"
+  class="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 p-4"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="auto-schedule-confirm-title"
+>
+  <div class="w-full max-w-lg rounded-2xl bg-white shadow-2xl">
+    <div class="border-b border-slate-200 px-5 py-4">
+      <h2
+        id="auto-schedule-confirm-title"
+        class="text-lg font-bold text-slate-900"
+      >
+        確認執行智慧排班
+      </h2>
+    </div>
+
+    <div class="whitespace-pre-line px-5 py-5 text-sm leading-7 text-slate-700">
+      {{ autoScheduleConfirmation.message }}
+    </div>
+
+    <div class="flex justify-end gap-3 border-t border-slate-200 px-5 py-4">
+      <button
+        type="button"
+        @click="cancelAutoSchedule"
+        class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+      >
+        取消
+      </button>
+
+      <button
+        type="button"
+        @click="confirmAutoSchedule"
+        class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
+      >
+        確認並執行
+      </button>
+    </div>
+  </div>
+</div>
+
+</section>

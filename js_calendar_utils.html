@@ -1,0 +1,95 @@
+<script>
+/**
+ * =========================================================================
+ * 💥 全域純日曆與日期工具函式庫 (Calendar Grid Utilities)
+ * 職責：純粹計算自然月幾何結構、星期、前置空白天數與標準字串歸一化
+ * 核心特色：零業務狀態依賴、不污染任何排班/意願點陣、內建格式容錯防呆
+ * =========================================================================
+ */
+const CalendarUtils = (function () {
+  const WEEKDAYS_ZH = ["日", "一", "二", "三", "四", "五", "六"];
+  const WEEKDAYS_ZH_FULL = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"];
+
+  /**
+   * 強制將各類異質月份輸入 (如 2026-9, 2026/9/1, Date物件) 歸一化為標準 "YYYY-MM"
+   */
+  function normalizeYearMonth(rawYm) {
+    if (!rawYm) return "";
+    if (rawYm instanceof Date) {
+      const y = rawYm.getFullYear();
+      const m = String(rawYm.getMonth() + 1).padStart(2, '0');
+      return `${y}-${m}`;
+    }
+    const str = String(rawYm).trim();
+    const match = str.match(/^(\d{4})[-/](\d{1,2})/);
+    if (match) {
+      return `${match[1]}-${String(match[2]).padStart(2, '0')}`;
+    }
+    return str.substring(0, 7);
+  }
+
+  /**
+   * 強制將各類異質日期輸入歸一化為標準 "YYYY-MM-DD"
+   */
+  function normalizeDateStr(rawD) {
+    if (!rawD) return "";
+    if (rawD instanceof Date) {
+      const y = rawD.getFullYear();
+      const m = String(rawD.getMonth() + 1).padStart(2, '0');
+      const d = String(rawD.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+    const str = String(rawD).trim();
+    const match = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+    if (match) {
+      return `${match[1]}-${String(match[2]).padStart(2, '0')}-${String(match[3]).padStart(2, '0')}`;
+    }
+    return str.substring(0, 10);
+  }
+
+  /**
+   * 核心：建構單月標準 7 欄月曆矩陣結構
+   * @param {string|Date} rawYm 目標月份 (如 "2026-10")
+   * @returns {Object} 包含當月天數、星期空白偏移量及標準天數陣列
+   */
+  function buildMonthCalendarGrid(rawYm) {
+    const ym = normalizeYearMonth(rawYm);
+    if (!ym) return { yearMonth: "", year: 0, month: 0, daysInMonth: 0, blankDays: 0, days: [] };
+
+    const [year, month] = ym.split("-").map(Number);
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const blankDays = new Date(year, month - 1, 1).getDay(); // 週日為 0
+    const days = [];
+
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dayOfWeekIdx = new Date(year, month - 1, d).getDay();
+      const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      days.push({
+        dateStr: dateStr,
+        dayNumber: d,
+        dayOfWeekIndex: dayOfWeekIdx,
+        weekday: WEEKDAYS_ZH[dayOfWeekIdx],
+        weekdayFull: WEEKDAYS_ZH_FULL[dayOfWeekIdx],
+        isWeekend: (dayOfWeekIdx === 0 || dayOfWeekIdx === 6)
+      });
+    }
+
+    return {
+      yearMonth: ym,
+      year: year,
+      month: month,
+      daysInMonth: daysInMonth,
+      blankDays: blankDays,
+      days: days
+    };
+  }
+
+  return {
+    normalizeYearMonth,
+    normalizeDateStr,
+    buildMonthCalendarGrid,
+    WEEKDAYS_ZH,
+    WEEKDAYS_ZH_FULL
+  };
+})();
+</script>

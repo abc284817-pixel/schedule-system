@@ -1,0 +1,256 @@
+<script>
+function useAvailabilityModule(core) {
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+  const currentDay = now.getDate();
+  const currentYm = `${currentYear}-${String(currentMonth).padStart(2, '0')}`;
+  const unlockedMonthsSet = reactive(new Set());
+  const isTempUnlockedForMe = ref(false);
+  const unlockExpireAt = ref(0);
+
+  const defaultNextMonth = computed(() => {
+    const d = new Date(currentYear, currentMonth, 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
+
+  const targetYearMonth = ref(defaultNextMonth.value);
+  const selectedShiftId = ref("SHIFT_LUNCH");
+  const isSelectingCurrentMonth = computed(() => targetYearMonth.value === currentYm);
+
+  const isMonthLocked = (ymStr) => {
+    const cleanYm = CalendarUtils.normalizeYearMonth(ymStr);
+    if (unlockedMonthsSet.has(cleanYm)) return false;
+    const [y, m] = cleanYm.split("-").map(Number);
+    if (cleanYm === currentYm) return true;
+    const isNextMonth = (y > currentYear) || (y === currentYear && m === currentMonth + 1);
+    if (isNextMonth) {
+      const lastDay = new Date(currentYear, currentMonth, 0).getDate();
+      return currentDay >= (lastDay - 2);
+    }
+    return (y < currentYear || (y === currentYear && m < currentMonth));
+  };
+
+  const employeeRollingMonths = computed(() => {
+    const list = [];
+    for (let i = 0; i <= 3; i++) {
+      const d = new Date(currentYear, currentMonth - 1 + i, 1);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      list.push({
+        value: `${y}-${m}`,
+        label: `${y} 年 ${m} 月`
+      });
+    }
+    return list;
+  });
+
+  const isCurrentMonthLocked = computed(() => isMonthLocked(targetYearMonth.value));
+
+  const formPreferences = reactive({
+    work_volume: "Standard",
+    partner_id: "",
+    dislike_partner_id: "",
+    day_preference: "Flexible"
+  });
+
+  const colleagueList = ref([]);
+  const monthCalendar = ref([]);
+  const blankDaysBeforeMonth = ref(0);
+  const availabilityMap = reactive({});
+  const dayNotes = reactive({});
+
+  const otherShiftId = computed(() => selectedShiftId.value === "SHIFT_LUNCH" ? "SHIFT_DINNER" : "SHIFT_LUNCH");
+
+  const isDateShiftSelected = (dateStr) => {
+    const dStr = CalendarUtils.normalizeDateStr(dateStr);
+    return Boolean(availabilityMap[dStr] && availabilityMap[dStr][selectedShiftId.value]);
+  };
+
+  const toggleDateShift = (dateStr) => {
+    if (isCurrentMonthLocked.value) return;
+    const dStr = CalendarUtils.normalizeDateStr(dateStr);
+    if (!availabilityMap[dStr]) {
+      availabilityMap[dStr] = { SHIFT_LUNCH: false, SHIFT_DINNER: false };
+    }
+    availabilityMap[dStr][selectedShiftId.value] = !availabilityMap[dStr][selectedShiftId.value];
+  };
+
+  const batchSelectCurrentShift = (state) => {
+    if (isCurrentMonthLocked.value) return;
+    monthCalendar.value.forEach(item => {
+      if (!availabilityMap[item.dateStr]) {
+        availabilityMap[item.dateStr] = { SHIFT_LUNCH: false, SHIFT_DINNER: false };
+      }
+      availabilityMap[item.dateStr][selectedShiftId.value] = state;
+    });
+  };
+
+  const generateCalendar = (yearMonthStr) => {
+    const ym = CalendarUtils.normalizeYearMonth(yearMonthStr || targetYearMonth.value);
+    if (!ym) return;
+
+    const grid = CalendarUtils.buildMonthCalendarGrid(ym);
+    blankDaysBeforeMonth.value = grid.blankDays;
+    monthCalendar.value = grid.days;
+
+    Object.keys(availabilityMap).forEach(k => delete availabilityMap[k]);
+    Object.keys(dayNotes).forEach(k => delete dayNotes[k]);
+
+    grid.days.forEach(item => {
+      availabilityMap[item.dateStr] = { SHIFT_LUNCH: false, SHIFT_DINNER: false };
+      dayNotes[item.dateStr] = "";
+    });
+  };
+
+  const loadAvailabilityOnly = (customYm, onComplete) => {
+    if (!core.token.value) return;
+    const ymToLoad = CalendarUtils.normalizeYearMonth(customYm || targetYearMonth.value);
+    if (!ymToLoad) return;
+    
+    core.isSubmitting.value = true;
+    google.script.run
+      .withSuccessHandler((res) => {
+        core.isSubmitting.value = false;
+        if (res && res.success) {
+          if (res.savedPreferences) {
+            formPreferences.work_volume = res.savedPreferences.work_volume || "Standard";
+            formPreferences.partner_id = res.savedPreferences.partner_id || "";
+            formPreferences.dislike_partner_id = res.savedPreferences.dislike_partner_id || "";
+            formPreferences.day_preference = res.savedPreferences.day_preference || "Flexible";
+          } else {
+            formPreferences.work_volume = "Standard";
+            formPreferences.partner_id = "";
+            formPreferences.dislike_partner_id = "";
+            formPreferences.day_preference = "Flexible";
+          }
+
+          if (res.savedAvailabilityMap) {
+            for (const [dStr, shifts] of Object.entries(res.savedAvailabilityMap)) {
+              if (availabilityMap[dStr]) {
+                availabilityMap[dStr].SHIFT_LUNCH = Boolean(shifts.SHIFT_LUNCH);
+                availabilityMap[dStr].SHIFT_DINNER = Boolean(shifts.SHIFT_DINNER);
+              }
+            }
+          }
+
+          isTempUnlockedForMe.value = Boolean(res.isTempUnlocked);
+          if (res.isTempUnlocked && res.myUnlockInfo) {
+            unlockedMonthsSet.add(ymToLoad);
+            unlockExpireAt.value = res.myUnlockInfo.expireAt;
+          }
+          if (typeof onComplete === 'function') onComplete();
+        }
+      })
+      .withFailureHandler((err) => {
+        core.isSubmitting.value = false;
+        core.triggerStickyAlert("讀取意願失敗: " + err.message, "error");
+      })
+      .apiGetAvailabilityForMonth(core.token.value, ymToLoad);
+  };
+
+  const stats = computed(() => {
+    let lunch = 0, dinner = 0;
+    const uniqueDates = new Set();
+    monthCalendar.value.forEach(item => {
+      const shifts = availabilityMap[item.dateStr];
+      if (shifts) {
+        if (shifts.SHIFT_LUNCH) { lunch++; uniqueDates.add(item.dateStr); }
+        if (shifts.SHIFT_DINNER) { dinner++; uniqueDates.add(item.dateStr); }
+      }
+    });
+    return { lunchCount: lunch, dinnerCount: dinner, totalShifts: lunch + dinner, uniqueDaysCount: uniqueDates.size };
+  });
+
+  const adviceInfo = computed(() => {
+    const pref = formPreferences.work_volume;
+    const dPref = formPreferences.day_preference;
+    let dText = "彈性安排";
+    if (dPref === "Both_Preferred") dText = "全日班";
+    if (dPref === "Single_Preferred") dText = "單一班次";
+    if (pref === "More") {
+      return {
+        label: `高工時需求 (${dText})`,
+        themeClass: "bg-emerald-50/80 border-emerald-300",
+        badgeClass: "bg-emerald-200 text-emerald-900",
+        textAccentClass: "text-emerald-800",
+        boldCountClass: "text-emerald-700",
+        description: "高工時需求模式：系統將在四週變形工時合規內優先為您安排排班權重。"
+      };
+    } else if (pref === "Less") {
+      return {
+        label: `彈性減班 (${dText})`,
+        themeClass: "bg-amber-50/80 border-amber-300",
+        badgeClass: "bg-amber-200 text-amber-900",
+        textAccentClass: "text-amber-800",
+        boldCountClass: "text-amber-700",
+        description: "彈性減班模式：系統將優先保障您的休假意願。"
+      };
+    }
+    return {
+      label: `標準工時 (${dText})`,
+      themeClass: "bg-sky-50/80 border-sky-300",
+      badgeClass: "bg-sky-200 text-sky-900",
+      textAccentClass: "text-sky-800",
+      boldCountClass: "text-indigo-600",
+      description: "標準工時模式：系統將依據門市標準工時配額排定出勤。"
+    };
+  });
+
+  const unlockCountdownText = computed(() => {
+    if (!unlockExpireAt.value) return "";
+    const diff = Math.max(0, Math.floor((unlockExpireAt.value - core.currentTimestamp.value.getTime()) / 1000));
+    if (diff <= 0) {
+      isTempUnlockedForMe.value = false;
+      unlockedMonthsSet.delete(targetYearMonth.value);
+      return "已過期";
+    }
+    const hh = String(Math.floor(diff / 3600)).padStart(2, '0');
+    const mm = String(Math.floor((diff % 3600) / 60)).padStart(2, '0');
+    const ss = String(diff % 60).padStart(2, '0');
+    return `${hh}:${mm}:${ss}`;
+  });
+
+  // 💥 提交意願：前端先做全空防呆，成功送出後僅傳送純意願點陣 (不傳送自用備忘)
+  const submitAvailability = () => {
+    if (isCurrentMonthLocked.value) {
+      core.triggerStickyAlert("安全鎖定中，該月份目前處於唯讀狀態，無法提交！", "error");
+      return;
+    }
+
+    if (stats.value.totalShifts === 0) {
+      core.triggerStickyAlert("⚠️ 您尚未勾選任何出勤班次！請至少勾選 1 個班次再送出意願。", "error");
+      return;
+    }
+
+    core.isSubmitting.value = true;
+    google.script.run
+      .withSuccessHandler((res) => {
+        core.isSubmitting.value = false;
+        if (res && res.success) {
+          core.triggerStickyAlert("意願已成功儲存！", "success");
+        } else {
+          core.triggerStickyAlert((res && res.message) ? res.message : "儲存失敗", "error");
+        }
+      })
+      .withFailureHandler((err) => {
+        core.isSubmitting.value = false;
+        core.triggerStickyAlert("送出失敗: " + err.message, "error");
+      })
+      .apiSubmitAvailability(core.token.value, {
+        year_month: targetYearMonth.value,
+        preferences: formPreferences,
+        availability: availabilityMap
+      });
+  };
+
+  return {
+    targetYearMonth, selectedShiftId, isCurrentMonthLocked, isSelectingCurrentMonth,
+    employeeRollingMonths, defaultNextMonth, formPreferences, colleagueList, monthCalendar,
+    blankDaysBeforeMonth, availabilityMap, dayNotes, otherShiftId, isDateShiftSelected,
+    toggleDateShift, batchSelectCurrentShift, generateCalendar, stats, adviceInfo,
+    submitAvailability, unlockedMonthsSet, isTempUnlockedForMe, unlockExpireAt, unlockCountdownText,
+    loadAvailabilityOnly
+  };
+}
+</script>

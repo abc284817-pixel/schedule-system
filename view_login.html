@@ -1,0 +1,33 @@
+<section v-if="!token" class="max-w-md mx-auto mt-12 bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+  <h2 class="text-lg font-bold text-slate-900 mb-4">系統登入</h2>
+  <div class="space-y-4">
+    <div>
+      <label class="block text-xs font-semibold text-slate-600 mb-1">員工代碼 (帳號)</label>
+      <input v-model="loginForm.employee_id" type="text" placeholder="例：EMP001" class="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-sm" />
+    </div>
+    <div>
+      <label class="block text-xs font-semibold text-slate-600 mb-1">密碼</label>
+      <div class="relative">
+        <input 
+          :type="showPassword ? 'text' : 'password'" 
+          v-model="loginForm.password" 
+          placeholder="請輸入密碼" 
+          class="w-full px-3 py-2 pr-10 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:outline-none text-sm" 
+        />
+        <button 
+          type="button" 
+          @click="showPassword = !showPassword" 
+          class="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 text-xs select-none"
+        >
+          {{ showPassword ? '隱藏' : '顯示' }}
+        </button>
+      </div>
+    </div>
+    <div v-if="loginError" class="p-2.5 text-xs text-rose-600 bg-rose-50 border border-rose-200 rounded-lg">
+      {{ loginError }}
+    </div>
+    <button @click="handleLogin" :disabled="isSubmitting" class="w-full py-2.5 bg-indigo-600 text-white font-semibold rounded-lg text-sm hover:bg-indigo-700 transition disabled:opacity-50">
+      {{ isSubmitting ? '登入中...' : '登入' }}
+    </button>
+  </div>
+</section>

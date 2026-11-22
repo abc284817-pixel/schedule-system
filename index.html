@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>餐飲門市智慧排班系統</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<?!= include('css') ?>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen">
+<div id="app" v-cloak class="max-w-6xl mx-auto p-3 sm:p-4 md:p-6 pb-20">
+ 
+  <header class="hidden md:flex justify-between items-center bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-6">
+    <div>
+      <div class="flex items-center space-x-2">
+        <h1 class="text-xl font-bold text-slate-900 tracking-tight">餐飲門市智慧排班系統</h1>
+        <span class="text-xs font-mono font-semibold text-slate-500 bg-slate-100 px-2.5 py-0.5 rounded border border-slate-200">
+          {{ systemRealYearMonthText }}
+        </span>
+      </div>
+      <p v-if="currentUser && currentUser.employee_id" class="text-sm text-slate-500 mt-1">
+        歡迎，<span class="font-medium text-slate-700">{{ currentUser.name }}</span> ({{ currentUser.employee_id }})
+      </p>
+    </div>
+    <button v-if="token" @click="handleLogout" class="text-sm px-3 py-1.5 border border-slate-200 rounded-lg hover:bg-slate-100 transition cursor-pointer">
+      登出
+    </button>
+  </header>
+
+  <header v-if="token && currentUser" class="flex md:hidden items-center justify-between bg-white px-3.5 py-2.5 rounded-xl shadow-xs border border-slate-200 mb-4 sticky top-2 z-30">
+    <div class="flex items-center space-x-2">
+      <button
+        @click="isMobileDrawerOpen = true"
+        class="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 transition cursor-pointer"
+        title="打開功能選單"
+      >
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+        </svg>
+      </button>
+      <span class="text-sm font-extrabold text-slate-900 truncate">智慧排班系統</span>
+    </div>
+    <div class="flex items-center space-x-2">
+      <span class="text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-100">
+        {{ currentUser.name }}
+      </span>
+      <button @click="handleLogout" class="text-xs px-2 py-1 text-slate-500 hover:text-slate-800 transition">
+        登出
+      </button>
+    </div>
+  </header>
+
+  <div v-if="token && currentUser && isMobileDrawerOpen" class="fixed inset-0 z-50 md:hidden flex">
+    <div @click="isMobileDrawerOpen = false" class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs transition-opacity"></div>
+   
+    <div class="relative w-72 max-w-[80vw] bg-white h-full shadow-2xl flex flex-col justify-between z-10 animate-slide-right">
+      <div>
+        <div class="p-4 bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-sm">
+          <div class="flex justify-between items-center mb-2.5">
+            <div class="flex items-center space-x-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-white shadow-xs"></span>
+              <h2 class="text-base font-extrabold text-white tracking-tight">餐飲門市智慧排班</h2>
+            </div>
+            <button
+              @click="isMobileDrawerOpen = false"
+              class="w-7 h-7 flex items-center justify-center rounded-full bg-white/20 hover:bg-white/30 text-white text-xs font-black transition cursor-pointer"
+            >
+              ✕
+            </button>
+          </div>
+          <div class="inline-flex items-center space-x-1.5 px-2.5 py-1 bg-white/15 backdrop-blur-xs rounded-lg border border-white/20 text-[11px] font-mono font-bold text-white shadow-2xs mb-2.5">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-pulse"></span>
+            <span>{{ systemRealYearMonthText }}</span>
+          </div>
+          <div class="flex items-center justify-between text-xs text-indigo-100 bg-black/15 p-2 rounded-xl border border-white/10 shadow-2xs">
+            <div>
+              <span>登入同仁：</span>
+              <span class="font-extrabold text-white">{{ currentUser.name }}</span>
+              <span class="text-indigo-200 font-mono text-[11px] ml-0.5">({{ currentUser.employee_id }})</span>
+            </div>
+            <span v-if="currentUser.role === 'Admin'" class="px-2 py-0.5 bg-white/20 text-white rounded text-[10px] font-bold">
+              主管
+            </span>
+          </div>
+        </div>
+        <nav class="p-3 space-y-1.5 overflow-y-auto">
+          <button
+            @click="activeTab = 'employee'; isMobileDrawerOpen = false"
+            :class="activeTab === 'employee' ? 'bg-indigo-600 text-white font-bold shadow-xs' : 'text-slate-700 hover:bg-slate-100 font-medium'"
+            class="w-full text-left px-3.5 py-2.5 rounded-xl text-xs flex items-center space-x-2.5 transition cursor-pointer"
+          >
+            <span>📝</span>
+            <span>個人意願填報</span>
+          </button>
+          <button
+            @click="activeTab = 'my_roster'; isMobileDrawerOpen = false"
+            :class="activeTab === 'my_roster' ? 'bg-indigo-600 text-white font-bold shadow-xs' : 'text-slate-700 hover:bg-slate-100 font-medium'"
+            class="w-full text-left px-3.5 py-2.5 rounded-xl text-xs flex items-center space-x-2.5 transition cursor-pointer"
+          >
+            <span>📅</span>
+            <span>我的排班班表</span>
+          </button>
+          <button
+            @click="activeTab = 'leave'; isMobileDrawerOpen = false"
+            :class="activeTab === 'leave' ? 'bg-indigo-600 text-white font-bold shadow-xs' : 'text-slate-700 hover:bg-slate-100 font-medium'"
+            class="w-full text-left px-3.5 py-2.5 rounded-xl text-xs flex items-center space-x-2.5 transition cursor-pointer"
+          >
+            <span>✉️</span>
+            <span>請假 / 代班申請</span>
+          </button>
+          <template v-if="currentUser.role === 'Admin'">
+            <div class="pt-3 pb-1 border-t border-slate-100">
+              <span class="text-[10px] font-bold text-slate-400 px-3 uppercase tracking-wider">主管管理中樞</span>
+            </div>
+            <button
+              @click="activeTab = 'manager'; isMobileDrawerOpen = false"
+              :class="activeTab === 'manager' ? 'bg-indigo-600 text-white font-bold shadow-xs' : 'text-slate-700 hover:bg-slate-100 font-medium'"
+              class="w-full text-left px-3.5 py-2.5 rounded-xl text-xs flex items-center justify-between transition cursor-pointer"
+            >
+              <div class="flex items-center space-x-2.5">
+                <span>📊</span>
+                <span>全店填報總覽</span>
+              </div>
+              <span class="font-extrabold text-xs" :class="activeTab === 'manager' ? 'text-amber-300' : 'text-amber-500'">★</span>
+            </button>
+            <button
+              @click="switchToScheduleTab(); isMobileDrawerOpen = false"
+              :class="activeTab === 'schedule' ? 'bg-indigo-600 text-white font-bold shadow-xs' : 'text-slate-700 hover:bg-slate-100 font-medium'"
+              class="w-full text-left px-3.5 py-2.5 rounded-xl text-xs flex items-center justify-between transition cursor-pointer"
+            >
+              <div class="flex items-center space-x-2.5">
+                <span>⚙️</span>
+                <span>正式班表預覽與手動調度</span>
+              </div>
+              <span class="font-extrabold text-xs" :class="activeTab === 'schedule' ? 'text-amber-300' : 'text-amber-500'">★</span>
+            </button>
+          </template>
+        </nav>
+      </div>
+      <div class="p-3 border-t border-slate-100">
+        <button
+          @click="handleLogout(); isMobileDrawerOpen = false"
+          class="w-full py-2 bg-slate-100 hover:bg-rose-50 hover:text-rose-600 text-slate-600 text-xs font-bold rounded-xl transition text-center cursor-pointer"
+        >
+          安全登出
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <?!= include('view_login') ?>
+
+  <main v-if="token && currentUser" class="space-y-6">
+    <div class="hidden md:flex flex-wrap gap-2 border-b border-slate-200 pb-2">
+      <button @click="activeTab = 'employee'" :class="activeTab === 'employee' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition cursor-pointer">
+        個人意願填報
+      </button>
+      <button @click="activeTab = 'my_roster'" :class="activeTab === 'my_roster' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition cursor-pointer">
+        我的排班班表
+      </button>
+      <button @click="activeTab = 'leave'" :class="activeTab === 'leave' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition cursor-pointer">
+        請假/代班申請
+      </button>
+    
+      <template v-if="currentUser.role === 'Admin'">
+        <button @click="activeTab = 'manager'" :class="activeTab === 'manager' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition flex items-center cursor-pointer">
+          <span>全店填報總覽</span>
+          <span class="ml-1 font-extrabold text-sm" :class="activeTab === 'manager' ? 'text-amber-300' : 'text-amber-500'" title="主管權限">★</span>
+        </button>
+        <button @click="switchToScheduleTab" :class="activeTab === 'schedule' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-200'" class="px-4 py-2 rounded-lg text-sm font-medium transition flex items-center cursor-pointer">
+          <span>正式班表預覽與手動調度</span>
+          <span class="ml-1 font-extrabold text-sm" :class="activeTab === 'schedule' ? 'text-amber-300' : 'text-amber-500'" title="主管權限">★</span>
+        </button>
+      </template>
+    </div>
+
+    <?!= include('view_availability') ?>
+    <?!= include('view_my_roster') ?>
+    <?!= include('view_leave') ?>
+    <?!= include('view_manager_summary') ?>
+    <?!= include('view_schedule_admin') ?>
+  </main>
+
+  <div v-if="token && currentUser" class="flex md:hidden fixed right-3.5 bottom-6 flex-col space-y-2 z-40">
+    <button
+      @click="scrollToTop"
+      class="w-10 h-10 rounded-full bg-slate-900/80 hover:bg-slate-900 text-white shadow-xl backdrop-blur-xs flex items-center justify-center text-sm font-black transition active:scale-90 border border-white/20 cursor-pointer"
+      title="回到頂端"
+    >
+      ▲
+    </button>
+    <button
+      @click="scrollToBottom"
+      class="w-10 h-10 rounded-full bg-slate-900/80 hover:bg-slate-900 text-white shadow-xl backdrop-blur-xs flex items-center justify-center text-sm font-black transition active:scale-90 border border-white/20 cursor-pointer"
+      title="前往底部"
+    >
+      ▼
+    </button>
+  </div>
+
+  <div
+    v-if="stickyAlert.visible"
+    :class="stickyAlert.type === 'success' ? 'bg-emerald-700 border-emerald-500 text-white' : 'bg-rose-700 border-rose-500 text-white'"
+    class="fixed bottom-6 right-6 border-2 p-4 rounded-xl shadow-2xl z-50 max-w-md flex items-start space-x-3 transition-all"
+  >
+    <div class="flex-1 text-xs font-medium leading-relaxed">
+      {{ stickyAlert.message }}
+    </div>
+    <button
+      @click="closeStickyAlert"
+      class="text-xs px-2 py-1 bg-white/20 hover:bg-white/30 rounded text-white font-bold transition select-none cursor-pointer"
+      title="關閉通知"
+    >
+      ✕ 關閉
+    </button>
+  </div>
+</div>
+
+<?!= include('js_constants') ?>
+<?!= include('js_calendar_utils') ?>
+<?!= include('js_core') ?>
+<?!= include('js_availability') ?>
+<?!= include('js_my_roster') ?>
+<?!= include('js_leave') ?>
+<?!= include('js_manager_summary') ?>
+<?!= include('js_schedule_admin') ?>
+<?!= include('js_main') ?>
+</body>
+</html>
