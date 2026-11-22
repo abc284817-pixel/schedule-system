@@ -132,7 +132,7 @@ node dev/ui_diff.js HEAD
 ## 8. 部署（clasp）
 
 - `.claspignore` 已排除 `dev/` 與 `*.md`；`tools/` 會推上去（供編輯器手動執行）。
-- repo 尚未有 `appsscript.json`：請到 Apps Script 編輯器「專案設定 → 在編輯器中顯示 appsscript.json」複製內容存到根目錄。**不要在 repo 內直接 `clasp pull`**，會把遠端已刪除的舊檔（如 `Api.js`）拉回來造成函式重複。
+- `appsscript.json`（時區、V8、網頁應用程式權限）已在 repo，修改專案設定時同步更新此檔。**不要在 repo 內直接 `clasp pull`**，會把遠端已刪除的舊檔（如 `Api.js`）拉回來造成函式重複。
 - `clasp push` 會以本機檔案完整取代遠端專案，再到「部署 → 管理部署 → 編輯 → 新版本」發布（網址不變）。
 
 ## 9. 已知技術債（非需求不要順手改）

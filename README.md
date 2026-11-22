@@ -35,7 +35,7 @@
 
 ## 與 Apps Script 同步（clasp）
 
-本 repo 已附 `.clasp.json`（指向原專案的 scriptId）與 `.claspignore`。目前**尚未包含 `appsscript.json`**：請到 Apps Script 編輯器「專案設定 → 在編輯器中顯示 appsscript.json」，把內容存成根目錄的 `appsscript.json`。
+本 repo 已附 `.clasp.json`（指向原專案的 scriptId）、`.claspignore` 與 `appsscript.json`（專案設定），下載後即可直接推送。
 
 > ⚠️ 不要在 repo 內直接 `clasp pull`：會把遠端已移除的舊檔（例如 `Api.js`）拉回來，造成函式重複定義。
 
