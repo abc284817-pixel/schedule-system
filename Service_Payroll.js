@@ -1,10 +1,33 @@
 /**
+ * [API] 全量重算月工時統計（僅限店長）
+ * 前端呼叫入口：驗證登入憑證與 Admin 角色，並以 ScriptLock 防止與排班 / 調度同時寫入。
+ */
+function apiRecalculateMonthlyStats(token) {
+  const user = validateToken(token);
+  if (!user || user.role !== 'Admin') {
+    return { success: false, message: "權限不足：僅店長可執行工時結算！" };
+  }
+
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(30000);
+    return recalculateAllMonthlyStats_();
+  } catch (e) {
+    return { success: false, message: "工時結算失敗：" + e.message };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
  * [全新計薪引擎 2.0] 全量對帳重建與雙薪分流
  * 1. 跨表讀取 (Schedule_Final + Schedule_Final_Archive)
  * 2. 嚴格比對底層原生英文 Enum ("Assigned", "Standby")
  * 3. 精準隔離 Standby Hours，確保 total_hours 不被污染
+ *
+ * 函式名稱以底線結尾 = Apps Script 私有函式，前端無法透過 google.script.run 直接呼叫。
  */
-function apiRecalculateMonthlyStats() {
+function recalculateAllMonthlyStats_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const statsSheet = ss.getSheetByName('Staff_Monthly_Stats');
   
