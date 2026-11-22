@@ -25,7 +25,7 @@
 | 後端主程式 | `Api.js`（API、排班演算法、稽核、封存） |
 | 計薪 | `Service_Payroll.js` |
 | 資料庫建置 / 工具 | `Schema.js`、`SeedData.js`、`RepairScheduleFinalData.js` |
-| 測試 / 模擬 | `Simulate_*.js`、`Test_Schedule_Engine.js`、`12月.js` |
+| 測試 / 模擬 | `Simulate_*.js`、`Test_Schedule_Engine.js` |
 | 前端頁面 | `index.html`、`view_*.html`、`css.html` |
 | 前端邏輯 | `js_*.html`（Vue 模組） |
 
